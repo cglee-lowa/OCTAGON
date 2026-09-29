@@ -301,6 +301,23 @@ header {
     color: #fff;
 }
 
+.terrain-inspector-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+}
+
+.terrain-inspector-row span:last-child {
+    color: var(--accent-yellow);
+    text-align: right;
+}
+
 /* Multipath Rays Visualizer */
 .multipath-taps {
     display: flex;

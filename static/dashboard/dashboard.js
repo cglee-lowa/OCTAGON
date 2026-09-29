@@ -210,7 +210,8 @@ class DashboardMonitor {
 
         // Scale tag
         if (data.scale_m) {
-            document.getElementById('current-sim-scale').textContent = `SCALE: ${data.scale_m}m | Freq: ${data.carrier_freq_ghz || 2.4}GHz`;
+            const terrainName = data.terrain ? ` | Terrain: ${data.terrain.name}` : '';
+            document.getElementById('current-sim-scale').textContent = `SCALE: ${data.scale_m}m | Freq: ${data.carrier_freq_ghz || 2.4}GHz${terrainName}`;
         }
 
         // Render Matrix Table & Inspector
@@ -306,6 +307,8 @@ class DashboardMonitor {
         document.getElementById('val-ins-doppler').textContent = `${link.dopplerHz.toFixed(2)} Hz`;
         document.getElementById('val-ins-fading').textContent = `${link.fading.toFixed(1)} dB (Shadow ${link.shadowing}dB)`;
         document.getElementById('val-ins-spread').textContent = `${link.rmsDelaySpreadNs.toFixed(1)} ns`;
+        const terrainTypes = link.terrainTypes && link.terrainTypes.length ? link.terrainTypes.join(' + ').toUpperCase() : 'OPEN';
+        document.getElementById('val-ins-terrain').textContent = `${terrainTypes} / ${link.isLos === false ? 'NLOS' : 'LOS'} (${(link.terrainLossDb || 0).toFixed(1)} dB)`;
 
         // Multipath profile
         if (link.multipath && link.multipath.length >= 3) {

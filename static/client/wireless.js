@@ -76,7 +76,7 @@ class WirelessEngine {
     /**
      * Compute comprehensive wireless link parameters between node i and node j
      */
-    computeLink(nodeA, nodeB, dt = 0.033) {
+    computeLink(nodeA, nodeB, dt = 0.033, terrain = null) {
         if (nodeA.id === nodeB.id) {
             return {
                 source: nodeA.id,
@@ -96,7 +96,11 @@ class WirelessEngine {
                 dopplerHz: 0,
                 rssiDbm: this.txPowerDbm,
                 linkQuality: 100,
-                isConnected: true
+                isConnected: true,
+                terrainLossDb: 0,
+                terrainDelaySpreadNs: 0,
+                terrainTypes: [],
+                isLos: true
             };
         }
 
@@ -112,6 +116,13 @@ class WirelessEngine {
         if (distance > this.d0) {
             pathLoss = pl0 + 10 * this.pathLossExponent * Math.log10(distance / this.d0);
         }
+        const terrainEffects = terrain ? terrain.evaluateLink(nodeA, nodeB) : {
+            terrainLossDb: 0,
+            terrainDelaySpreadNs: 0,
+            terrainTypes: [],
+            isLos: true
+        };
+        pathLoss += terrainEffects.terrainLossDb;
 
         // 2. Fading (Shadowing + Fast Fading)
         const pairKey = nodeA.id < nodeB.id ? `${nodeA.id}-${nodeB.id}` : `${nodeB.id}-${nodeA.id}`;
@@ -125,7 +136,7 @@ class WirelessEngine {
         // 4. Multipath Profile (RMS Delay Spread + 3 Taps)
         // Delay spread increases with distance and terrain dispersion
         const baseSpreadNs = 15.0; // 15 ns base spread
-        const rmsDelaySpreadNs = baseSpreadNs * (1.0 + 0.45 * Math.log10(1 + distance / 10.0));
+        const rmsDelaySpreadNs = baseSpreadNs * (1.0 + 0.45 * Math.log10(1 + distance / 10.0)) + terrainEffects.terrainDelaySpreadNs;
         
         // 3-Ray Tap Model:
         // Tap 1: Direct path (0 ns, 0 dB reference)
@@ -135,8 +146,8 @@ class WirelessEngine {
         const tap3ExcessNs = Math.min(delayNs * 0.35 + 35.0, 300.0);
         const multipath = [
             { tap: 1, delayNs: 0.0, powerRatioDb: 0.0 },
-            { tap: 2, delayNs: parseFloat(tap2ExcessNs.toFixed(1)), powerRatioDb: -5.2 },
-            { tap: 3, delayNs: parseFloat(tap3ExcessNs.toFixed(1)), powerRatioDb: -13.8 }
+            { tap: 2, delayNs: parseFloat((tap2ExcessNs + terrainEffects.terrainDelaySpreadNs * 0.25).toFixed(1)), powerRatioDb: terrainEffects.isLos ? -5.2 : -8.2 },
+            { tap: 3, delayNs: parseFloat((tap3ExcessNs + terrainEffects.terrainDelaySpreadNs).toFixed(1)), powerRatioDb: terrainEffects.isLos ? -13.8 : -10.8 }
         ];
 
         // 5. Doppler Shift (Hz)
@@ -182,21 +193,25 @@ class WirelessEngine {
             dopplerHz: parseFloat(dopplerHz.toFixed(2)),
             rssiDbm: parseFloat(rssiDbm.toFixed(2)),
             linkQuality: Math.round(linkQuality),
-            isConnected: isConnected
+            isConnected: isConnected,
+            terrainLossDb: terrainEffects.terrainLossDb,
+            terrainDelaySpreadNs: terrainEffects.terrainDelaySpreadNs,
+            terrainTypes: terrainEffects.terrainTypes,
+            isLos: terrainEffects.isLos
         };
     }
 
     /**
      * Compute full 8x8 Link Matrix for an array of 8 nodes
      */
-    computeMatrix(nodes, dt = 0.033) {
+    computeMatrix(nodes, dt = 0.033, terrain = null) {
         const matrix = [];
         const n = nodes.length;
 
         for (let i = 0; i < n; i++) {
             const row = [];
             for (let j = 0; j < n; j++) {
-                row.push(this.computeLink(nodes[i], nodes[j], dt));
+                row.push(this.computeLink(nodes[i], nodes[j], dt, terrain));
             }
             matrix.push(row);
         }

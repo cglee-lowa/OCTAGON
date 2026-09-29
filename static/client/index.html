@@ -79,6 +79,20 @@
                     </div>
                 </div>
 
+                <div class="panel-section">
+                    <div class="panel-title">
+                        <span>EXPERIMENTAL TERRAIN</span>
+                        <span id="terrain-name" style="color: var(--accent-green);">Mixed Tactical Range</span>
+                    </div>
+                    <div class="preset-grid" id="terrain-selector">
+                        <button class="preset-btn terrain-btn" data-terrain="open">Open Field</button>
+                        <button class="preset-btn terrain-btn" data-terrain="woodland">Woodland</button>
+                        <button class="preset-btn terrain-btn" data-terrain="urban">Built-up</button>
+                        <button class="preset-btn terrain-btn active" data-terrain="mixed">Mixed Range</button>
+                    </div>
+                    <div class="terrain-note">Terrain adds sampled attenuation, multipath spread, and LOS blockage to each RF link.</div>
+                </div>
+
                 <!-- Simulation & RF Parameters -->
                 <div class="panel-section">
                     <div class="panel-title">RF & TRANSMISSION</div>
@@ -204,6 +218,7 @@
     </div>
 
     <!-- Scripts -->
+    <script src="/static/client/terrain.js"></script>
     <script src="/static/client/wireless.js"></script>
     <script src="/static/client/app.js"></script>
 </body>

@@ -50,6 +50,7 @@ class OctagonApp {
             shadowingSigma: 3.0,
             txPowerDbm: 23.0
         });
+        this.terrain = new TacticalTerrain('mixed');
 
         // Current computed matrix
         this.latestMatrix = [];
@@ -213,6 +214,10 @@ class OctagonApp {
         document.getElementById('preset-line').addEventListener('click', () => this.applyPreset('line'));
         document.getElementById('preset-cluster').addEventListener('click', () => this.applyPreset('cluster'));
 
+        document.querySelectorAll('.terrain-btn').forEach(btn => {
+            btn.addEventListener('click', () => this.setTerrainPreset(btn.dataset.terrain));
+        });
+
         // Reset View & Recenter
         document.getElementById('btn-reset-view').addEventListener('click', () => this.resetView());
         document.getElementById('btn-recenter').addEventListener('click', () => this.resetView());
@@ -260,6 +265,14 @@ class OctagonApp {
             this.wireless.txPowerDbm = parseFloat(e.target.value);
             document.getElementById('val-txpwr').textContent = `${e.target.value} dBm`;
         });
+    }
+
+    setTerrainPreset(presetId) {
+        this.terrain.setPreset(presetId);
+        document.querySelectorAll('.terrain-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.terrain === presetId);
+        });
+        document.getElementById('terrain-name').textContent = this.terrain.getMetadata().name;
     }
 
     setScale(meters) {
@@ -521,7 +534,7 @@ class OctagonApp {
     sendMatrixPayload() {
         // Compute full 8x8 matrix
         const dt = 1.0 / this.updateRateHz;
-        this.latestMatrix = this.wireless.computeMatrix(this.nodes, dt);
+        this.latestMatrix = this.wireless.computeMatrix(this.nodes, dt, this.terrain);
 
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             const payload = {
@@ -531,6 +544,7 @@ class OctagonApp {
                 path_loss_exp: this.wireless.pathLossExponent,
                 shadowing_sigma_db: this.wireless.shadowingSigma,
                 tx_power_dbm: this.wireless.txPowerDbm,
+                terrain: this.terrain.getMetadata(),
                 nodes: this.nodes.map(n => ({
                     id: n.id,
                     name: n.name,
@@ -594,6 +608,7 @@ class OctagonApp {
 
         // Draw World Elements
         this.drawGrid();
+        this.terrain.draw(this.ctx, (x, y) => this.worldToScreen(x, y));
         this.drawOriginAxes();
         this.drawWirelessLinks();
         this.drawNodes(timestamp);

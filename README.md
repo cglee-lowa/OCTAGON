@@ -67,6 +67,7 @@
   - 원점 복귀(`⌖ RESET VIEW`) 지원.
 - **동적 축척 전환:** `10m`, `20m`, `50m`, `100m`, `200m`, `500m` 버튼 선택 시 화면의 실제 거리 격자 눈금 및 우측 하단 스케일 바(Scale Bar)가 실시간 동적 갱신.
 - **전술 포메이션 프리셋:** `Octagon Ring`, `2x4 Tactical Grid`, `Convoy Line`, `2-Cluster Mesh` 원클릭 대형 배치.
+- **실험용 전술지형 모드:** `Open Field`, `Woodland`, `Built-up Area`, `Mixed Tactical Range` 프리셋을 전환합니다. 지형 구역은 캔버스에 표시되며, 링크 경로를 2 m 간격으로 샘플링해 추가 감쇠, 다중경로 지연 확산, LOS/NLOS 상태를 계산합니다.
 - **자동 기동 (Auto Patrol):** 드래그하지 않고도 지속적인 도플러 효과 및 링크 동적 변화를 시뮬레이션할 수 있는 자동 순찰 모드.
 - **RF 환경 설정:** 반송파 주파수($f_c$, 1.0~6.0GHz), 경로손실지수($n$, 2.0~4.0), 섀도잉 표준편차($\sigma$, 0~8dB), 송신 전력($P_{tx}$, 10~30dBm), 전송 주기(10Hz~50Hz).
 
@@ -100,6 +101,12 @@
    $$\tau = \frac{d}{c} \quad (c = 299,792,458\text{ m/s} \approx 3 \times 10^8\text{ m/s})$$
    - 단위: 나노초 ($\text{ns}$), $1\text{m} \approx 3.3356\text{ ns}$
 
+4.1. **실험용 전술지형 보정 (Experimental Terrain Effects):**
+   - 각 노드 간 경로를 2 m 단위로 표본화하고 통과한 구역의 선형 감쇠 및 지연 확산을 누적합니다.
+   - `Woodland`는 $0.12\text{ dB/m}$ 감쇠와 $0.22\text{ ns/m}$ 추가 지연 확산을, `Built-up Area`는 $0.35\text{ dB/m}$ 및 $0.55\text{ ns/m}$를 적용합니다.
+   - `Built-up Area` 또는 `Ridge`가 경로의 유의미한 비율을 차지하면 NLOS로 분류하고 $12\text{ dB}$ 차폐 손실과 추가 지연 확산을 부여합니다.
+   - 이 값들은 반복 가능한 비교 실험용 단순화 모델이며 실측 지형 전파 예측 모델은 아닙니다.
+
 5. **다중 경로 프로파일 (Multipath Profile - 3-Ray Tap):**
    - RMS 지연 확산: $\sigma_\tau \approx 15 \cdot (1 + 0.45\log_{10}(1 + d/10)) \quad (\text{ns})$
    - **Tap 1 (Direct LOS):** 지연 $0\text{ ns}$, 상대 전력 $0.0\text{ dB}$
@@ -123,6 +130,7 @@ OCTAGON/
 │   │   ├── index.html        # 에뮬레이터 UI 레이아웃
 │   │   ├── style.css         # 전술 Cybernetic 다크 테마 스타일
 │   │   ├── wireless.js       # 5대 무선 채널 모델 연산 엔진
+│   │   ├── terrain.js        # 재현 가능한 전술지형 구역 및 링크 보정 모델
 │   │   └── app.js            # Canvas 렌더러, 노드 물리 엔진, 드래그/줌, WebSocket 전송
 │   └── dashboard/            # Octaman Server 대시보드
 │       ├── index.html        # 모니터링 대시보드 UI
