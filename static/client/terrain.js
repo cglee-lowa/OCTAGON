@@ -164,6 +164,7 @@ class TacticalTerrain {
             }
             if (!response.ok) throw new Error(`OpenStreetMap ${response.status}`);
             const data = await response.json();
+            if (this.preset !== 'munjeong') return;
             const toLocal = (point) => ({
                 x: (point.lon - center.lon) * 111320 * Math.cos(center.lat * Math.PI / 180),
                 y: (point.lat - center.lat) * 111320
@@ -178,7 +179,13 @@ class TacticalTerrain {
                     const heightTag = parseFloat(tags.height);
                     const levels = parseFloat(tags['building:levels']);
                     const height = Number.isFinite(heightTag) ? heightTag : (Number.isFinite(levels) ? levels * 3.2 : (tags.building === 'apartments' ? 24 : 9));
-                    features.push({ kind: 'building', id: `osm-${way.id}`, name: tags.name || tags['name:ko'] || '', footprint: points.slice(0, -1), height: Math.max(3, height), estimatedHeight: !Number.isFinite(heightTag) && !Number.isFinite(levels) });
+                    const footprint = points.slice(0, -1);
+                    features.push({
+                        kind: 'building', id: `osm-${way.id}`, name: tags.name || tags['name:ko'] || '', footprint,
+                        x: footprint.reduce((sum, point) => sum + point.x, 0) / footprint.length,
+                        y: footprint.reduce((sum, point) => sum + point.y, 0) / footprint.length,
+                        height: Math.max(3, height), estimatedHeight: !Number.isFinite(heightTag) && !Number.isFinite(levels)
+                    });
                 } else if (tags.waterway || tags.natural === 'water' || tags.highway) {
                     features.push({ kind: tags.waterway || tags.natural === 'water' ? 'water' : 'road', name: tags.name || '', points, width: parseFloat(tags.width) || 0, highway: tags.highway || '' });
                 }

@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OCTAGON | MANET Wireless Emulator V1 (문정역 3D 전술지형)</title>
     <link rel="stylesheet" href="/static/client/style.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.145/Build/Cesium/Widgets/widgets.css">
+    <script src="https://cdn.jsdelivr.net/npm/cesium@1.145/Build/Cesium/Cesium.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 </head>
@@ -202,6 +204,7 @@
 
             <!-- Canvas Viewport -->
             <main class="canvas-wrapper" id="canvas-container">
+                <div id="cesium-container" aria-label="문정동 Cesium 3D 지형" style="display:none; position:absolute; inset:0;"></div>
                 <canvas id="viewport-canvas"></canvas>
 
                 <!-- Floating Canvas HUD Top -->
@@ -229,14 +232,14 @@
 
                 <div class="controls-hint">
                     🖱️ <b>[2D 모드] 좌클릭 노드 드래그</b>: 위치 이동 &nbsp;|&nbsp; <b>우클릭/빈공간 드래그</b>: 맵 Pan 이동 &nbsp;|&nbsp; <b>휠</b>: Zoom<br>
-                    🎮 <b>[3D 모드] 좌클릭 드래그</b>: 카메라 3D 회전 (Pitch/Yaw) &nbsp;|&nbsp; <b>우클릭 드래그</b>: 3D 이동
+                    🌐 <b>[Cesium 3D 모드] 좌클릭 드래그</b>: 지구본 회전 &nbsp;|&nbsp; <b>우클릭 드래그</b>: 지도 이동 &nbsp;|&nbsp; <b>휠</b>: 고도/확대 조절
                 </div>
             </main>
         </div>
     </div>
 
     <!-- Scripts -->
-    <div style="position: fixed; bottom: 4px; right: 8px; z-index: 20; color: #91a0af; background: rgba(4, 8, 14, .78); padding: 3px 6px; font: 10px sans-serif; pointer-events: none;"><span id="terrain-data-status">Loading map data…</span> · © OpenStreetMap contributors · Copernicus DEM via Open-Meteo</div>
+    <div style="position: fixed; bottom: 4px; right: 8px; z-index: 20; color: #91a0af; background: rgba(4, 8, 14, .78); padding: 3px 6px; font: 10px sans-serif; pointer-events: none;"><span id="terrain-data-status">Loading map data…</span> · 3D by CesiumJS · © OpenStreetMap contributors · Copernicus DEM via Open-Meteo</div>
     <script src="/static/client/terrain.js"></script>
     <script src="/static/client/wireless.js"></script>
     <script src="/static/client/app.js"></script>

@@ -52,13 +52,16 @@ class OctagonApp {
 
         // Tactical Terrain Engine (Munjeong station default)
         this.terrain = new TacticalTerrain('munjeong');
-        this.terrain.loadRegionalData().then(() => {
+        this.terrainDataPromise = this.terrain.loadRegionalData().then(() => {
             const status = document.getElementById('terrain-data-status');
             if (!status) return;
             status.textContent = this.terrain.mapLoadStatus === 'loaded'
                 ? `OSM buildings ${this.terrain.osmBuildingCount.toLocaleString()} · DEM loaded`
                 : this.terrain.mapLoadStatus === 'partial' ? 'Map data partially loaded' : 'Built-in terrain fallback';
         });
+        this.cesiumViewer = null;
+        this.cesiumDataSource = null;
+        this.isCesiumVisible = false;
         this.showContours = true;
         this.showBuildings = true;
 
@@ -245,6 +248,9 @@ class OctagonApp {
         const btn3D = document.getElementById('btn-view-3d');
         btn2D.addEventListener('click', () => {
             this.viewMode = '2d';
+            this.isCesiumVisible = false;
+            document.getElementById('cesium-container').style.display = 'none';
+            this.canvas.style.display = 'block';
             btn2D.classList.add('active');
             btn2D.style.background = 'var(--accent-cyan)';
             btn2D.style.color = '#000';
@@ -256,6 +262,7 @@ class OctagonApp {
 
         btn3D.addEventListener('click', () => {
             this.viewMode = '3d';
+            this.activateCesiumView();
             btn3D.classList.add('active');
             btn3D.style.background = 'var(--accent-cyan)';
             btn3D.style.color = '#000';
@@ -269,6 +276,13 @@ class OctagonApp {
         const selectPreset = document.getElementById('select-terrain-preset');
         selectPreset.addEventListener('change', (e) => {
             this.terrain.loadPreset(e.target.value);
+            if (e.target.value !== 'munjeong') {
+                this.isCesiumVisible = false;
+                document.getElementById('cesium-container').style.display = 'none';
+                this.canvas.style.display = 'block';
+            } else if (this.viewMode === '3d') {
+                this.activateCesiumView();
+            }
             for (const n of this.nodes) {
                 n.z = this.terrain.getElevation(n.x, n.y) + 2.0;
             }
@@ -384,11 +398,17 @@ class OctagonApp {
         this.camera3D.zoom = 1.05;
         this.camera3D.cx = 20;
         this.camera3D.cy = 0;
+        if (this.cesiumViewer) this.flyCesiumHome();
         this.setScale(this.scaleMeters);
     }
 
     zoomAtCenter(factor) {
         if (this.viewMode === '3d') {
+            if (this.cesiumViewer) {
+                if (factor > 1) this.cesiumViewer.camera.zoomIn(1500 * (factor / 1.2));
+                else this.cesiumViewer.camera.zoomOut(1500 * ((1 / factor) / 1.2));
+                return;
+            }
             this.camera3D.zoom = Math.min(Math.max(this.camera3D.zoom * factor, 0.4), 3.0);
         } else {
             const cx = this.canvas.width / 2;
@@ -417,7 +437,163 @@ class OctagonApp {
         const rect = this.container.getBoundingClientRect();
         this.canvas.width = rect.width;
         this.canvas.height = rect.height;
+        if (this.cesiumViewer) this.cesiumViewer.resize();
         this.updateScaleBar();
+    }
+
+    async activateCesiumView() {
+        const container = document.getElementById('cesium-container');
+        if (this.terrain.preset !== 'munjeong') {
+            this.isCesiumVisible = false;
+            container.style.display = 'none';
+            this.canvas.style.display = 'block';
+            return;
+        }
+        container.style.display = 'block';
+        this.canvas.style.display = 'none';
+        await this.terrainDataPromise;
+        if (this.cesiumViewer) {
+            this.cesiumViewer.resize();
+            this.isCesiumVisible = true;
+            return;
+        }
+        if (!window.Cesium) {
+            container.style.display = 'none';
+            this.canvas.style.display = 'block';
+            console.error('CesiumJS failed to load; using the Canvas 3D renderer.');
+            return;
+        }
+
+        const C = window.Cesium;
+        this.cesiumViewer = new C.Viewer(container, {
+            baseLayer: false, terrainProvider: new C.EllipsoidTerrainProvider(),
+            animation: false, timeline: false, geocoder: false, homeButton: false,
+            sceneModePicker: false, baseLayerPicker: false, navigationHelpButton: false,
+            fullscreenButton: false, infoBox: false, selectionIndicator: false,
+            shouldAnimate: false
+        });
+        this.cesiumViewer.imageryLayers.addImageryProvider(new C.UrlTemplateImageryProvider({
+            url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            credit: new C.Credit('© OpenStreetMap contributors')
+        }));
+        this.cesiumViewer.scene.backgroundColor = C.Color.fromCssColorString('#101923');
+        this.cesiumViewer.scene.globe.baseColor = C.Color.fromCssColorString('#26342e');
+        this.cesiumViewer.scene.globe.enableLighting = true;
+        this.cesiumViewer.scene.globe.showGroundAtmosphere = false;
+        this.cesiumViewer.scene.screenSpaceCameraController.minimumZoomDistance = 80;
+        this.cesiumViewer.scene.screenSpaceCameraController.maximumZoomDistance = 100000;
+        this.cesiumViewer.entities.suspendEvents();
+        try {
+            this.addCesiumTerrain();
+            this.addCesiumMapFeatures();
+        } finally {
+            this.cesiumViewer.entities.resumeEvents();
+        }
+        this.addCesiumTacticalOverlay();
+        this.flyCesiumHome();
+        this.cesiumViewer.resize();
+        this.isCesiumVisible = true;
+    }
+
+    localToCesium(x, y, height = 0) {
+        const C = window.Cesium;
+        const centerLat = 37.48593, centerLon = 127.12236;
+        const lat = centerLat + y / 111320;
+        const lon = centerLon + x / (111320 * Math.cos(centerLat * Math.PI / 180));
+        return C.Cartesian3.fromDegrees(lon, lat, height);
+    }
+
+    flyCesiumHome() {
+        if (!this.cesiumViewer) return;
+        this.cesiumViewer.camera.flyTo({
+            destination: window.Cesium.Cartesian3.fromDegrees(127.12236, 37.48593, 12000),
+            orientation: { heading: 0, pitch: -0.95, roll: 0 }, duration: 1.2
+        });
+    }
+
+    addCesiumTerrain() {
+        if (!this.terrain.demGrid) return;
+        const C = window.Cesium;
+        const grid = this.terrain.demGrid;
+        const values = grid.values;
+        const minHeight = Math.min(...values), maxHeight = Math.max(...values);
+        for (let row = 0; row < grid.columns - 1; row++) {
+            for (let col = 0; col < grid.columns - 1; col++) {
+                const x = -3000 + col * grid.step, y = -3000 + row * grid.step;
+                const sample = (dx, dy) => values[(row + dy) * grid.columns + col + dx];
+                const points = [
+                    this.localToCesium(x, y, sample(0, 0)), this.localToCesium(x + grid.step, y, sample(1, 0)),
+                    this.localToCesium(x + grid.step, y + grid.step, sample(1, 1)), this.localToCesium(x, y + grid.step, sample(0, 1))
+                ];
+                const average = (sample(0, 0) + sample(1, 0) + sample(1, 1) + sample(0, 1)) / 4;
+                const t = Math.max(0, Math.min(1, (average - minHeight) / Math.max(maxHeight - minHeight, 1)));
+                const color = C.Color.lerp(C.Color.fromCssColorString('#31473b'), C.Color.fromCssColorString('#837b62'), t, new C.Color());
+                this.cesiumViewer.entities.add({
+                    polygon: { hierarchy: points, perPositionHeight: true, material: color.withAlpha(0.72), outline: false }
+                });
+            }
+        }
+    }
+
+    addCesiumMapFeatures() {
+        const C = window.Cesium;
+        for (const feature of this.terrain.osmFeatures) {
+            if (feature.kind === 'building') {
+                const positions = feature.footprint.map(point => this.localToCesium(point.x, point.y));
+                const ground = this.terrain.getElevation(feature.x, feature.y);
+                const color = feature.estimatedHeight ? '#657582' : feature.height >= 60 ? '#e57956' : feature.height >= 30 ? '#d5a64b' : '#3b718c';
+                this.cesiumViewer.entities.add({
+                    name: feature.name || 'OSM building',
+                    polygon: {
+                        hierarchy: positions, height: ground, extrudedHeight: ground + feature.height,
+                        material: C.Color.fromCssColorString(color).withAlpha(0.88),
+                        outline: true, outlineColor: C.Color.fromCssColorString('#89d5ec').withAlpha(0.65)
+                    }
+                });
+            } else if (feature.kind === 'water') {
+                const positions = feature.points.map(point => this.localToCesium(point.x, point.y, this.terrain.getElevation(point.x, point.y) + 1));
+                if (feature.points.length >= 4 && Math.hypot(feature.points[0].x - feature.points.at(-1).x, feature.points[0].y - feature.points.at(-1).y) < 2) {
+                    this.cesiumViewer.entities.add({ polygon: { hierarchy: positions, material: C.Color.fromCssColorString('#147da0').withAlpha(0.55), perPositionHeight: true } });
+                } else {
+                    this.cesiumViewer.entities.add({ polyline: { positions, width: 3, material: C.Color.fromCssColorString('#26bde8') } });
+                }
+            } else if (feature.kind === 'road' && ['motorway', 'trunk', 'primary', 'secondary', 'tertiary'].includes(feature.highway)) {
+                const positions = feature.points.map(point => this.localToCesium(point.x, point.y, this.terrain.getElevation(point.x, point.y) + 1));
+                this.cesiumViewer.entities.add({ polyline: { positions, width: feature.highway === 'primary' || feature.highway === 'trunk' ? 3 : 1.5, material: C.Color.fromCssColorString('#b6a985').withAlpha(0.68) } });
+            }
+        }
+    }
+
+    addCesiumTacticalOverlay() {
+        const C = window.Cesium;
+        this.cesiumDataSource = new C.CustomDataSource('OCTAGON tactical nodes and radio links');
+        this.cesiumViewer.dataSources.add(this.cesiumDataSource);
+        for (const node of this.nodes) {
+            this.cesiumDataSource.entities.add({
+                id: `node-${node.id}`, name: `N${node.id} ${node.role || ''}`,
+                position: new C.CallbackProperty(() => this.localToCesium(node.x, node.y, this.terrain.getElevation(node.x, node.y) + 4), false),
+                point: { pixelSize: node.id === this.selectedNodeId ? 14 : 10, color: C.Color.fromCssColorString(node.color), outlineColor: C.Color.WHITE, outlineWidth: 2, heightReference: C.HeightReference.NONE },
+                label: { text: `N${node.id}`, font: 'bold 13px sans-serif', fillColor: C.Color.WHITE, outlineColor: C.Color.BLACK, outlineWidth: 3, style: C.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new C.Cartesian2(0, -18), disableDepthTestDistance: Number.POSITIVE_INFINITY }
+            });
+        }
+        for (let i = 0; i < this.nodes.length; i++) {
+            for (let j = i + 1; j < this.nodes.length; j++) {
+                const nodeA = this.nodes[i], nodeB = this.nodes[j];
+                const linkPositions = new C.CallbackProperty(() => [
+                    this.localToCesium(nodeA.x, nodeA.y, this.terrain.getElevation(nodeA.x, nodeA.y) + 3),
+                    this.localToCesium(nodeB.x, nodeB.y, this.terrain.getElevation(nodeB.x, nodeB.y) + 3)
+                ], false);
+                this.cesiumDataSource.entities.add({
+                    polyline: {
+                        positions: linkPositions, width: 2,
+                        material: new C.ColorMaterialProperty(new C.CallbackProperty(() => {
+                            const link = this.latestMatrix?.[i]?.[j];
+                            return link?.isLOS ? C.Color.LIME.withAlpha(0.65) : C.Color.CRIMSON.withAlpha(0.78);
+                        }, false))
+                    }
+                });
+            }
+        }
     }
 
     onMouseDown(e) {
@@ -732,19 +908,12 @@ class OctagonApp {
 
         this.updatePatrol(dt);
 
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        if (this.viewMode !== '3d' || !this.isCesiumVisible) this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
         if (this.viewMode === '3d') {
-            // 3D Isometric / Perspective Tactical View
-            this.terrain.render3D(
-                this.ctx,
-                this.canvas.width,
-                this.canvas.height,
-                this.camera3D,
-                this.nodes,
-                this.latestMatrix,
-                this.selectedNodeId
-            );
+            if (!this.isCesiumVisible) {
+                this.terrain.render3D(this.ctx, this.canvas.width, this.canvas.height, this.camera3D, this.nodes, this.latestMatrix, this.selectedNodeId);
+            }
         } else {
             // 2D Tactical Map View
             this.drawGrid();
