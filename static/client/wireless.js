@@ -2,7 +2,9 @@
  * OCTAGON MANET Wireless Channel Parameter Calculation Engine
  * 
  * Supports calculation of:
- * - Log-distance Path Loss (dB)
+ * - 3D Distance & Log-distance Path Loss (dB)
+ * - Tactical Terrain LOS / NLOS Knife-Edge Diffraction Loss (dB)
+ * - Foliage Clutter Attenuation (dB)
  * - Fading (Log-normal Shadowing + Small-scale Multipath Fading) (dB)
  * - Propagation Delay (ns)
  * - Multipath Profile (RMS Delay Spread & 3-Ray Delays)
@@ -51,7 +53,6 @@ class WirelessEngine {
         }
         
         const state = this.fadingStates.get(pairKey);
-        // Time correlation parameter alpha = exp(-dt / T_decorr)
         const decorrTime = 1.5; // Shadowing decorrelation time ~1.5s
         const alpha = Math.exp(-Math.max(dt, 0.01) / decorrTime);
         const w = Math.sqrt(1 - alpha * alpha) * this.randn() * this.shadowingSigma;
@@ -61,7 +62,6 @@ class WirelessEngine {
         state.fastPhase = (state.fastPhase + dt * (3.0 + Math.random() * 5.0)) % (2 * Math.PI);
         const ricianK = 3.0; // K-factor in dB for direct LOS
         const kLinear = Math.pow(10, ricianK / 10);
-        // Normalized complex envelope
         const s = Math.sqrt(kLinear / (kLinear + 1));
         const diffRay = Math.sqrt(1 / (2 * (kLinear + 1)));
         const rReal = s + diffRay * this.randn();
@@ -75,13 +75,15 @@ class WirelessEngine {
 
     /**
      * Compute comprehensive wireless link parameters between node i and node j
+     * Integrates 3D Terrain Analysis (LOS/NLOS, Diffraction, Foliage, Elevation)
      */
-    computeLink(nodeA, nodeB, dt = 0.033) {
+    computeLink(nodeA, nodeB, dt = 0.033, terrain = null) {
         if (nodeA.id === nodeB.id) {
             return {
                 source: nodeA.id,
                 target: nodeB.id,
                 distance: 0,
+                distance3D: 0,
                 pathLoss: 0,
                 fading: 0,
                 shadowing: 0,
@@ -89,29 +91,62 @@ class WirelessEngine {
                 delayNs: 0,
                 rmsDelaySpreadNs: 0,
                 multipath: [
-                    { delayNs: 0, powerRatioDb: 0 },
-                    { delayNs: 0, powerRatioDb: -999 },
-                    { delayNs: 0, powerRatioDb: -999 }
+                    { tap: 1, delayNs: 0, powerRatioDb: 0 },
+                    { tap: 2, delayNs: 0, powerRatioDb: -999 },
+                    { tap: 3, delayNs: 0, powerRatioDb: -999 }
                 ],
                 dopplerHz: 0,
                 rssiDbm: this.txPowerDbm,
                 linkQuality: 100,
-                isConnected: true
+                isConnected: true,
+                isLOS: true,
+                diffractionLossDb: 0,
+                foliageLossDb: 0,
+                totalTerrainLossDb: 0,
+                elevationA: 0,
+                elevationB: 0,
+                obstructionPoint: null,
+                obstructingBuilding: null
             };
         }
 
         const dx = nodeB.x - nodeA.x;
         const dy = nodeB.y - nodeA.y;
-        const distance = Math.max(0.1, Math.hypot(dx, dy)); // Distance in meters
+        const dist2D = Math.max(0.1, Math.hypot(dx, dy));
 
-        // 1. Path Loss: Log-distance Path Loss Model
-        // PL(d0) Free-space path loss at d0 = 1m: 20*log10(4*pi*d0/lambda)
+        // 3D Terrain & Obstruction Analysis
+        let isLOS = true;
+        let dist3D = dist2D;
+        let diffractionLossDb = 0.0;
+        let foliageLossDb = 0.0;
+        let totalTerrainLossDb = 0.0;
+        let elevA = 0.0;
+        let elevB = 0.0;
+        let obstructionPoint = null;
+        let obstructingBuilding = null;
+
+        if (terrain && typeof terrain.analyzePath === 'function') {
+            const pathResult = terrain.analyzePath(nodeA, nodeB, 2.0, this.wavelength);
+            isLOS = pathResult.isLOS;
+            dist3D = pathResult.dist3D || dist2D;
+            diffractionLossDb = pathResult.diffractionLossDb;
+            foliageLossDb = pathResult.foliageLossDb;
+            totalTerrainLossDb = pathResult.totalTerrainLossDb;
+            elevA = pathResult.elevationA;
+            elevB = pathResult.elevationB;
+            obstructionPoint = pathResult.obstructionPoint;
+            obstructingBuilding = pathResult.obstructingBuilding;
+        }
+
+        // 1. Path Loss: Log-distance 3D Path Loss Model + Terrain Clutter/Diffraction
         const lambda = this.wavelength;
         const pl0 = 20 * Math.log10((4 * Math.PI * this.d0) / lambda);
         let pathLoss = pl0;
-        if (distance > this.d0) {
-            pathLoss = pl0 + 10 * this.pathLossExponent * Math.log10(distance / this.d0);
+        if (dist3D > this.d0) {
+            pathLoss = pl0 + 10 * this.pathLossExponent * Math.log10(dist3D / this.d0);
         }
+        // 차폐 회절 손실 및 수목 감쇄 추가
+        pathLoss += totalTerrainLossDb;
 
         // 2. Fading (Shadowing + Fast Fading)
         const pairKey = nodeA.id < nodeB.id ? `${nodeA.id}-${nodeB.id}` : `${nodeB.id}-${nodeA.id}`;
@@ -119,50 +154,38 @@ class WirelessEngine {
         const totalFading = fadingState.shadow + fadingState.fastFadingDb;
 
         // 3. Propagation Delay
-        // tau = d / c (in nanoseconds)
-        const delayNs = (distance / this.c) * 1e9;
+        // tau = d_3D / c (in nanoseconds)
+        const delayNs = (dist3D / this.c) * 1e9;
 
         // 4. Multipath Profile (RMS Delay Spread + 3 Taps)
-        // Delay spread increases with distance and terrain dispersion
-        const baseSpreadNs = 15.0; // 15 ns base spread
-        const rmsDelaySpreadNs = baseSpreadNs * (1.0 + 0.45 * Math.log10(1 + distance / 10.0));
+        // NLOS 시 다중경로 확산(Delay Spread) 급증
+        const baseSpreadNs = isLOS ? 16.0 : 42.0;
+        const rmsDelaySpreadNs = baseSpreadNs * (1.0 + 0.45 * Math.log10(1 + dist3D / 10.0));
         
         // 3-Ray Tap Model:
-        // Tap 1: Direct path (0 ns, 0 dB reference)
-        // Tap 2: Ground reflection (slight excess delay, ~3-8 dB attenuation)
-        // Tap 3: Clutter/obstacle scatter (longer excess delay, ~10-18 dB attenuation)
-        const tap2ExcessNs = Math.min(delayNs * 0.15 + 12.0, 120.0);
-        const tap3ExcessNs = Math.min(delayNs * 0.35 + 35.0, 300.0);
+        const tap2ExcessNs = Math.min(delayNs * 0.18 + (isLOS ? 14.0 : 35.0), 180.0);
+        const tap3ExcessNs = Math.min(delayNs * 0.40 + (isLOS ? 40.0 : 90.0), 380.0);
         const multipath = [
             { tap: 1, delayNs: 0.0, powerRatioDb: 0.0 },
-            { tap: 2, delayNs: parseFloat(tap2ExcessNs.toFixed(1)), powerRatioDb: -5.2 },
-            { tap: 3, delayNs: parseFloat(tap3ExcessNs.toFixed(1)), powerRatioDb: -13.8 }
+            { tap: 2, delayNs: parseFloat(tap2ExcessNs.toFixed(1)), powerRatioDb: isLOS ? -6.0 : -3.5 },
+            { tap: 3, delayNs: parseFloat(tap3ExcessNs.toFixed(1)), powerRatioDb: isLOS ? -14.5 : -8.5 }
         ];
 
         // 5. Doppler Shift (Hz)
-        // Relative velocity vector: v_rel = vB - vA
         const vxRel = (nodeB.vx || 0) - (nodeA.vx || 0);
         const vyRel = (nodeB.vy || 0) - (nodeA.vy || 0);
-        
-        // Line-of-sight unit vector from A to B
-        const ux = dx / distance;
-        const uy = dy / distance;
-
-        // Radial relative velocity: v_r = v_rel · u
+        const ux = dx / dist2D;
+        const uy = dy / dist2D;
         const vRadial = vxRel * ux + vyRel * uy;
-
-        // Doppler frequency shift: fd = (v_radial / lambda) = (v_radial * fc) / c
         const dopplerHz = (vRadial * this.frequencyHz) / this.c;
 
-        // 6. RSSI (Received Signal Strength Indicator in dBm)
-        // RSSI = P_tx + G_tx + G_rx - PathLoss - Shadowing - FastFading
+        // 6. RSSI
         const totalGain = this.antennaGainDbi * 2;
         const rssiDbm = this.txPowerDbm + totalGain - pathLoss - totalFading;
 
         // Link Quality Estimation (0 to 100%)
-        // Sensitivity threshold: -95 dBm (0%), Good: -65 dBm (100%)
-        const minSensitivity = -95.0;
-        const maxExcellent = -60.0;
+        const minSensitivity = -98.0;
+        const maxExcellent = -58.0;
         let linkQuality = ((rssiDbm - minSensitivity) / (maxExcellent - minSensitivity)) * 100;
         linkQuality = Math.min(100, Math.max(0, linkQuality));
 
@@ -171,7 +194,8 @@ class WirelessEngine {
         return {
             source: nodeA.id,
             target: nodeB.id,
-            distance: parseFloat(distance.toFixed(2)),
+            distance: parseFloat(dist2D.toFixed(2)),
+            distance3D: parseFloat(dist3D.toFixed(2)),
             pathLoss: parseFloat(pathLoss.toFixed(2)),
             fading: parseFloat(totalFading.toFixed(2)),
             shadowing: parseFloat(fadingState.shadow.toFixed(2)),
@@ -182,21 +206,29 @@ class WirelessEngine {
             dopplerHz: parseFloat(dopplerHz.toFixed(2)),
             rssiDbm: parseFloat(rssiDbm.toFixed(2)),
             linkQuality: Math.round(linkQuality),
-            isConnected: isConnected
+            isConnected: isConnected,
+            isLOS: isLOS,
+            diffractionLossDb: parseFloat(diffractionLossDb.toFixed(2)),
+            foliageLossDb: parseFloat(foliageLossDb.toFixed(2)),
+            totalTerrainLossDb: parseFloat(totalTerrainLossDb.toFixed(2)),
+            elevationA: parseFloat(elevA.toFixed(1)),
+            elevationB: parseFloat(elevB.toFixed(1)),
+            obstructionPoint: obstructionPoint,
+            obstructingBuilding: obstructingBuilding
         };
     }
 
     /**
-     * Compute full 8x8 Link Matrix for an array of 8 nodes
+     * Compute full 8x8 Link Matrix for an array of 8 nodes with optional terrain
      */
-    computeMatrix(nodes, dt = 0.033) {
+    computeMatrix(nodes, dt = 0.033, terrain = null) {
         const matrix = [];
         const n = nodes.length;
 
         for (let i = 0; i < n; i++) {
             const row = [];
             for (let j = 0; j < n; j++) {
-                row.push(this.computeLink(nodes[i], nodes[j], dt));
+                row.push(this.computeLink(nodes[i], nodes[j], dt, terrain));
             }
             matrix.push(row);
         }

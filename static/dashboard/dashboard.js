@@ -1,6 +1,7 @@
 /**
  * OCTAMAN Server Dashboard Controller
  * Real-time 8x8 MANET Link Matrix & Wireless Telemetry Monitor
+ * Displays 3D Terrain LOS/NLOS status, diffraction loss, and node elevations
  */
 
 class DashboardMonitor {
@@ -22,7 +23,6 @@ class DashboardMonitor {
     }
 
     setupDOM() {
-        // Tab buttons
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -42,7 +42,7 @@ class DashboardMonitor {
 
         switch (this.activeMetric) {
             case 'pathLoss':
-                tag.textContent = '(Path Loss in dB)';
+                tag.textContent = '(Path Loss in dB - *표시는 차폐 NLOS 링크)';
                 legendMin.textContent = '40 dB (Low Loss)';
                 legendMax.textContent = '100+ dB (High Loss)';
                 gradientBar.style.background = 'linear-gradient(90deg, #00ff88, #ffb703, #ff3366)';
@@ -86,7 +86,6 @@ class DashboardMonitor {
 
         for (let i = 0; i < 8; i++) {
             const tr = document.createElement('tr');
-            // Row header
             const th = document.createElement('th');
             th.textContent = `N${i + 1}`;
             tr.appendChild(th);
@@ -98,13 +97,14 @@ class DashboardMonitor {
                 td.dataset.rx = j;
 
                 if (i === j) {
-                    td.className = 'self-cell';
+                    td.className = 'diag';
                     td.textContent = '—';
                 } else {
                     td.textContent = '--';
                     td.addEventListener('click', () => {
                         this.selectedPair = { tx: i, rx: j };
-                        this.highlightSelectedCell();
+                        document.querySelectorAll('.matrix-table td').forEach(c => c.classList.remove('selected'));
+                        td.classList.add('selected');
                         if (this.latestData) this.updateInspector(this.latestData);
                     });
                 }
@@ -113,29 +113,22 @@ class DashboardMonitor {
             tbody.appendChild(tr);
         }
 
-        this.highlightSelectedCell();
-    }
-
-    highlightSelectedCell() {
-        document.querySelectorAll('.matrix-table td').forEach(td => td.classList.remove('selected'));
-        const cell = document.getElementById(`cell-${this.selectedPair.tx}-${this.selectedPair.rx}`);
-        if (cell) cell.classList.add('selected');
+        const defaultCell = document.getElementById('cell-0-1');
+        if (defaultCell) defaultCell.classList.add('selected');
     }
 
     connectWebSocket() {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = window.location.host || 'localhost:8000';
-        const wsUrl = `${protocol}//${host}/ws/dashboard`;
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${proto}//${window.location.host}/ws/dashboard`;
 
-        this.appendLog(`Connecting to WebSocket: ${wsUrl}`);
-        this.updateServerDot(false, 'CONNECTING...');
+        this.updateServerDot(false, 'CONNECTING');
 
         try {
             this.ws = new WebSocket(wsUrl);
 
             this.ws.onopen = () => {
-                this.updateServerDot(true, 'MONITORING ACTIVE');
-                this.appendLog('Connected to Octaman Server broadcast channel.');
+                this.updateServerDot(true, 'RECEIVING');
+                this.appendLog('Connected to OCTAMAN Server stream.');
             };
 
             this.ws.onclose = () => {
@@ -144,7 +137,7 @@ class DashboardMonitor {
                 setTimeout(() => this.connectWebSocket(), 2000);
             };
 
-            this.ws.onerror = (err) => {
+            this.ws.onerror = () => {
                 this.updateServerDot(false, 'ERROR');
                 this.appendLog('WebSocket error encountered.');
             };
@@ -165,12 +158,8 @@ class DashboardMonitor {
     updateServerDot(connected, text) {
         const dot = document.getElementById('srv-dot');
         const txt = document.getElementById('srv-status-text');
-        if (connected) {
-            dot.className = 'dot connected';
-        } else {
-            dot.className = 'dot';
-        }
-        txt.textContent = text;
+        if (dot) dot.className = connected ? 'dot connected' : 'dot';
+        if (txt) txt.textContent = text;
     }
 
     appendLog(msg) {
@@ -183,7 +172,6 @@ class DashboardMonitor {
         logBox.appendChild(div);
         logBox.scrollTop = logBox.scrollHeight;
 
-        // Keep last 40 entries
         while (logBox.children.length > 40) {
             logBox.removeChild(logBox.firstChild);
         }
@@ -194,7 +182,6 @@ class DashboardMonitor {
         this.packetCount++;
         this.framesThisSec++;
 
-        // Measure FPS
         const now = performance.now();
         if (now - this.lastFpsCalcTime >= 1000) {
             this.rxFps = ((this.framesThisSec * 1000) / (now - this.lastFpsCalcTime)).toFixed(1);
@@ -208,12 +195,11 @@ class DashboardMonitor {
             this.lastFpsCalcTime = now;
         }
 
-        // Scale tag
         if (data.scale_m) {
-            document.getElementById('current-sim-scale').textContent = `SCALE: ${data.scale_m}m | Freq: ${data.carrier_freq_ghz || 2.4}GHz`;
+            const terrainName = data.terrain_preset === 'munjeong' ? '문정역 실지형' : (data.terrain_preset || 'Standard');
+            document.getElementById('current-sim-scale').textContent = `TERRAIN: ${terrainName} | SCALE: ${data.scale_m}m | ${data.carrier_freq_ghz || 2.4}GHz`;
         }
 
-        // Render Matrix Table & Inspector
         this.renderMatrix(data.matrix);
         this.updateInspector(data);
         this.renderNodesOverview(data.nodes);
@@ -221,7 +207,6 @@ class DashboardMonitor {
 
     getColorForMetric(val, metric) {
         if (metric === 'pathLoss') {
-            // 40 dB (green: 0, 255, 136) -> 75 dB (yellow: 255, 183, 3) -> 100 dB (red: 255, 51, 102)
             const norm = Math.min(Math.max((val - 40) / 60, 0), 1);
             if (norm < 0.5) {
                 const f = norm * 2;
@@ -231,11 +216,9 @@ class DashboardMonitor {
                 return `rgba(255, ${Math.round(183 - 132 * f)}, ${Math.round(3 + 99 * f)}, 0.45)`;
             }
         } else if (metric === 'delayNs') {
-            // 0 ns -> 1500 ns
             const norm = Math.min(Math.max(val / 1500, 0), 1);
             return `rgba(0, ${Math.round(240 - 150 * norm)}, 255, ${0.15 + norm * 0.45})`;
         } else if (metric === 'dopplerHz') {
-            // -40 Hz (blue) -> 0 Hz (dark) -> +40 Hz (orange)
             const clamped = Math.min(Math.max(val, -40), 40);
             if (clamped < 0) {
                 const f = -clamped / 40;
@@ -245,7 +228,6 @@ class DashboardMonitor {
                 return `rgba(255, 183, 3, ${f * 0.5})`;
             }
         } else if (metric === 'rssiDbm') {
-            // -95 dBm (red) -> -65 dBm (yellow) -> -40 dBm (green)
             const norm = Math.min(Math.max((val + 95) / 55, 0), 1);
             if (norm < 0.5) {
                 const f = norm * 2;
@@ -283,6 +265,11 @@ class DashboardMonitor {
                     if (this.activeMetric === 'delayNs') displayVal = val.toFixed(0);
                 }
 
+                // 차폐 NLOS 링크는 별표 * 표기
+                if (!link.isLOS && this.activeMetric === 'pathLoss') {
+                    displayVal += '*';
+                }
+
                 cell.textContent = displayVal;
                 cell.style.backgroundColor = this.getColorForMetric(val, this.activeMetric);
             }
@@ -297,8 +284,9 @@ class DashboardMonitor {
         const link = data.matrix && data.matrix[tx] ? data.matrix[tx][rx] : null;
         if (!link) return;
 
-        document.getElementById('inspect-pair-label').textContent = `NODE ${tx + 1} ⇄ NODE ${rx + 1}`;
-        document.getElementById('inspect-distance').textContent = `${link.distance.toFixed(1)} m`;
+        const tag = link.isLOS ? 'LOS (직접파)' : `NLOS (차폐 회절 +${link.diffractionLossDb || 0}dB)`;
+        document.getElementById('inspect-pair-label').innerHTML = `NODE ${tx + 1} ⇄ NODE ${rx + 1} &nbsp;<span style="color: ${link.isLOS ? 'var(--accent-green)' : 'var(--accent-red)'}; font-size: 11px;">[${tag}]</span>`;
+        document.getElementById('inspect-distance').textContent = `3D: ${link.distance3D || link.distance}m (2D: ${link.distance}m)`;
 
         document.getElementById('val-ins-pl').textContent = `${link.pathLoss.toFixed(1)} dB`;
         document.getElementById('val-ins-rssi').textContent = `${link.rssiDbm.toFixed(1)} dBm`;
@@ -307,7 +295,6 @@ class DashboardMonitor {
         document.getElementById('val-ins-fading').textContent = `${link.fading.toFixed(1)} dB (Shadow ${link.shadowing}dB)`;
         document.getElementById('val-ins-spread').textContent = `${link.rmsDelaySpreadNs.toFixed(1)} ns`;
 
-        // Multipath profile
         if (link.multipath && link.multipath.length >= 3) {
             document.getElementById('tap2-val').innerHTML = `${link.multipath[1].delayNs} ns &nbsp;|&nbsp; ${link.multipath[1].powerRatioDb} dB`;
             document.getElementById('tap3-val').innerHTML = `${link.multipath[2].delayNs} ns &nbsp;|&nbsp; ${link.multipath[2].powerRatioDb} dB`;
@@ -341,7 +328,8 @@ class DashboardMonitor {
                 const speed = Math.hypot(n.vx, n.vy).toFixed(1);
                 card.querySelector('.node-speed-txt').textContent = `${speed} m/s`;
                 card.querySelector('.node-speed-txt').style.color = speed > 0.5 ? 'var(--accent-yellow)' : 'var(--text-muted)';
-                card.querySelector('.node-pos-txt').textContent = `X: ${n.x.toFixed(1)}m, Y: ${n.y.toFixed(1)}m`;
+                const zTxt = (n.z !== undefined) ? `, H: ${n.z.toFixed(1)}m` : '';
+                card.querySelector('.node-pos-txt').textContent = `X: ${n.x.toFixed(1)}m, Y: ${n.y.toFixed(1)}m${zTxt}`;
             }
         }
     }

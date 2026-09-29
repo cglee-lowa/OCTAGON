@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OCTAGON | MANET Wireless Emulator V1</title>
+    <title>OCTAGON | MANET Wireless Emulator V1 (문정역 3D 전술지형)</title>
     <link rel="stylesheet" href="/static/client/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -16,7 +16,7 @@
                 <div class="brand-logo">8</div>
                 <div>
                     <div class="brand-title">OCTAGON &bull; MANET EMULATOR</div>
-                    <div class="brand-subtitle">8-NODE TACTICAL WIRELESS CHANNEL SIMULATOR</div>
+                    <div class="brand-subtitle">문정역 실지형 3D 전술 무선 채널 시뮬레이터</div>
                 </div>
             </div>
 
@@ -36,6 +36,10 @@
             </div>
 
             <div class="header-actions">
+                <div class="view-mode-toggle" style="display: flex; background: rgba(0,0,0,0.5); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px;">
+                    <button id="btn-view-2d" class="btn-mode active" style="padding: 4px 10px; font-size: 11px; border: none; background: var(--accent-cyan); color: #000; font-weight: bold; border-radius: 3px; cursor: pointer;">2D 전술맵</button>
+                    <button id="btn-view-3d" class="btn-mode" style="padding: 4px 10px; font-size: 11px; border: none; background: transparent; color: var(--text-secondary); font-weight: bold; border-radius: 3px; cursor: pointer;">3D 입체뷰</button>
+                </div>
                 <button id="btn-toggle-patrol" class="btn-tactical" title="노드 자동 기동 (도플러/링크 동적 변화)">
                     <span>▶ AUTO PATROL</span>
                 </button>
@@ -52,6 +56,28 @@
         <div class="main-body">
             <!-- Sidebar Controls -->
             <aside class="control-sidebar">
+                <!-- Tactical Terrain Selection -->
+                <div class="panel-section">
+                    <div class="panel-title">
+                        <span>TACTICAL TERRAIN (전술 지형)</span>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <select id="select-terrain-preset" style="background: #151e2b; color: #00f0ff; border: 1px solid #1e2c3f; border-radius: 4px; padding: 6px 10px; font-family: var(--font-mono); font-size: 12px; font-weight: bold; cursor: pointer;">
+                            <option value="munjeong" selected>📍 서울 송파 문정역 & 법조단지 (실지형)</option>
+                            <option value="ridge_valley">⛰️ 전술 산악 협곡 고지 (Ridge & Valley)</option>
+                            <option value="flat">⬛ Flat Open Plain (평지)</option>
+                        </select>
+                        <div style="display: flex; gap: 6px;">
+                            <button id="btn-toggle-contours" class="btn-tactical" style="flex: 1; font-size: 11px; justify-content: center;">
+                                <span>등고선 ON</span>
+                            </button>
+                            <button id="btn-toggle-buildings" class="btn-tactical" style="flex: 1; font-size: 11px; justify-content: center;">
+                                <span>건물 차폐 ON</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Scale Selection -->
                 <div class="panel-section">
                     <div class="panel-title">
@@ -70,8 +96,9 @@
 
                 <!-- Formation Presets -->
                 <div class="panel-section">
-                    <div class="panel-title">FORMATION PRESETS</div>
+                    <div class="panel-title">FORMATION PRESETS (배치)</div>
                     <div class="preset-grid">
+                        <button class="preset-btn" id="preset-munjeong">📍 문정역 전술배치</button>
                         <button class="preset-btn" id="preset-octagon">⬡ Octagon Ring</button>
                         <button class="preset-btn" id="preset-grid">⊞ 2x4 Tactical</button>
                         <button class="preset-btn" id="preset-line">━ Convoy Line</button>
@@ -136,7 +163,7 @@
                             <div class="node-badge" id="sel-node-color-badge" style="background: #00f0ff;">1</div>
                             <div>
                                 <strong id="sel-node-name">NODE 1 (Alpha)</strong>
-                                <div style="font-size: 10px; color: var(--text-secondary);" id="sel-node-role">Squad Leader / Gateway</div>
+                                <div style="font-size: 10px; color: var(--text-secondary);" id="sel-node-role">문정역 지휘소</div>
                             </div>
                         </div>
 
@@ -150,20 +177,23 @@
                                 <span class="detail-val" id="sel-node-y">0.0 m</span>
                             </div>
                             <div class="detail-item">
-                                <span class="detail-label">VELOCITY</span>
-                                <span class="detail-val" id="sel-node-vel">0.0 m/s</span>
+                                <span class="detail-label">ELEVATION (Z)</span>
+                                <span class="detail-val" id="sel-node-elev" style="color: var(--accent-yellow);">24.0 m</span>
                             </div>
                             <div class="detail-item">
-                                <span class="detail-label">HEADING</span>
-                                <span class="detail-val" id="sel-node-heading">0.0°</span>
+                                <span class="detail-label">VELOCITY</span>
+                                <span class="detail-val" id="sel-node-vel">0.0 m/s</span>
                             </div>
                         </div>
                     </div>
 
                     <!-- Nearest Link Summary -->
                     <div style="margin-top: 10px; font-size: 11px; color: var(--text-secondary);">
-                        <div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">ACTIVE LINKS STATUS</div>
-                        <div id="links-summary-list" style="max-height: 120px; overflow-y: auto; font-family: var(--font-mono); font-size: 10px;">
+                        <div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary); display: flex; justify-content: space-between;">
+                            <span>ACTIVE LINKS STATUS</span>
+                            <span id="los-status-summary" style="color: var(--accent-green); font-size: 10px;">LOS: 7 / NLOS: 0</span>
+                        </div>
+                        <div id="links-summary-list" style="max-height: 140px; overflow-y: auto; font-family: var(--font-mono); font-size: 10px;">
                             <!-- Injected by JS -->
                         </div>
                     </div>
@@ -176,8 +206,9 @@
 
                 <!-- Floating Canvas HUD Top -->
                 <div class="canvas-hud-top">
-                    <div>ZOOM: <span id="hud-zoom-val" style="color: var(--accent-cyan);">100%</span></div>
-                    <div>PAN: <span id="hud-pan-val" style="color: var(--text-primary);">(0m, 0m)</span></div>
+                    <div>TERRAIN: <span id="hud-terrain-val" style="color: #ffcf40; font-weight: bold;">문정역 실지형</span></div>
+                    <div>VIEW: <span id="hud-view-val" style="color: var(--accent-cyan);">2D 전술맵</span></div>
+                    <div>PAN/ROT: <span id="hud-pan-val" style="color: var(--text-primary);">(0m, 0m)</span></div>
                     <div>NODES: <span style="color: var(--accent-green);">8 ONLINE</span></div>
                 </div>
 
@@ -197,13 +228,15 @@
                 </div>
 
                 <div class="controls-hint">
-                    🖱️ <b>좌클릭 노드 드래그</b>: 위치 이동 &nbsp;|&nbsp; <b>좌클릭 빈공간 / 우클릭 드래그</b>: 맵 Pan 이동 &nbsp;|&nbsp; <b>휠</b>: Zoom
+                    🖱️ <b>[2D 모드] 좌클릭 노드 드래그</b>: 위치 이동 &nbsp;|&nbsp; <b>우클릭/빈공간 드래그</b>: 맵 Pan 이동 &nbsp;|&nbsp; <b>휠</b>: Zoom<br>
+                    🎮 <b>[3D 모드] 좌클릭 드래그</b>: 카메라 3D 회전 (Pitch/Yaw) &nbsp;|&nbsp; <b>우클릭 드래그</b>: 3D 이동
                 </div>
             </main>
         </div>
     </div>
 
     <!-- Scripts -->
+    <script src="/static/client/terrain.js"></script>
     <script src="/static/client/wireless.js"></script>
     <script src="/static/client/app.js"></script>
 </body>

@@ -58,7 +58,9 @@ def build_rich_display() -> Panel:
     if state.latest_payload and "matrix" in state.latest_payload:
         matrix = state.latest_payload["matrix"]
         scale_m = state.latest_payload.get("scale_m", 50)
-        status_text.append(f"MAP SCALE: {scale_m}m | CARRIER: {state.latest_payload.get('carrier_freq_ghz', 2.4)} GHz\n", style="dim")
+        terrain_name = state.latest_payload.get("terrain_preset", "munjeong")
+        terrain_str = "서울 송파 문정역 실지형" if terrain_name == "munjeong" else terrain_name
+        status_text.append(f"TERRAIN: {terrain_str} | MAP SCALE: {scale_m}m | CARRIER: {state.latest_payload.get('carrier_freq_ghz', 2.4)} GHz\n", style="dim")
 
         for i in range(8):
             row_items = [f"[bold cyan]N{i+1}[/bold cyan]"]
@@ -66,14 +68,18 @@ def build_rich_display() -> Panel:
                 if i == j:
                     row_items.append("[dim]—[/dim]")
                 else:
-                    pl = matrix[i][j].get("pathLoss", 0.0)
+                    link_obj = matrix[i][j]
+                    pl = link_obj.get("pathLoss", 0.0)
+                    is_los = link_obj.get("isLOS", True)
+                    nlos_mark = "" if is_los else "*"
+
                     # Color coding based on loss
-                    if pl < 60:
-                        row_items.append(f"[green]{pl:4.1f}[/green]")
-                    elif pl < 80:
-                        row_items.append(f"[yellow]{pl:4.1f}[/yellow]")
+                    if pl < 65:
+                        row_items.append(f"[green]{pl:4.1f}{nlos_mark}[/green]")
+                    elif pl < 85:
+                        row_items.append(f"[yellow]{pl:4.1f}{nlos_mark}[/yellow]")
                     else:
-                        row_items.append(f"[red]{pl:4.1f}[/red]")
+                        row_items.append(f"[red]{pl:4.1f}{nlos_mark}[/red]")
             table.add_row(*row_items)
     else:
         for i in range(8):
@@ -83,7 +89,7 @@ def build_rich_display() -> Panel:
     return Panel(
         table,
         title=f"[bold green]OCTAMAN MANET EMULATION SERVER[/bold green] (Packets: {state.packet_count:,})",
-        subtitle="[dim]Octagon Web App: http://localhost:8000/client | Dashboard: http://localhost:8000/dashboard[/dim]",
+        subtitle="[dim]*: 차폐(NLOS) 회절 링크 | App: http://localhost:8000/client | Dashboard: http://localhost:8000/dashboard[/dim]",
         border_style="green" if state.client_connected else "cyan"
     )
 
