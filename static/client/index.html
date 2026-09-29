@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCTAGON | MANET Wireless Emulator V1</title>
+    <link rel="stylesheet" href="/static/client/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app-container">
+        <!-- Header -->
+        <header>
+            <div class="brand-section">
+                <div class="brand-logo">8</div>
+                <div>
+                    <div class="brand-title">OCTAGON &bull; MANET EMULATOR</div>
+                    <div class="brand-subtitle">8-NODE TACTICAL WIRELESS CHANNEL SIMULATOR</div>
+                </div>
+            </div>
+
+            <div class="header-status">
+                <div class="status-pill">
+                    <span id="ws-indicator" class="status-indicator"></span>
+                    <span id="ws-status-text">OFFLINE</span>
+                </div>
+                <div class="status-pill">
+                    <span>TX FPS:</span>
+                    <span id="tx-fps-val" style="color: var(--accent-cyan); font-weight: bold;">0.0</span>
+                </div>
+                <div class="status-pill">
+                    <span>SERVER:</span>
+                    <span id="server-url-display" style="color: #fff;">ws://localhost:8000/ws/client</span>
+                </div>
+            </div>
+
+            <div class="header-actions">
+                <button id="btn-toggle-patrol" class="btn-tactical" title="노드 자동 기동 (도플러/링크 동적 변화)">
+                    <span>▶ AUTO PATROL</span>
+                </button>
+                <button id="btn-reset-view" class="btn-tactical" title="뷰포트 원점 초기화">
+                    <span>⌖ RESET VIEW</span>
+                </button>
+                <a href="/dashboard" target="_blank" class="btn-tactical" style="text-decoration: none; border-color: var(--accent-green); color: var(--accent-green);">
+                    <span>📊 SERVER DASHBOARD ↗</span>
+                </a>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <div class="main-body">
+            <!-- Sidebar Controls -->
+            <aside class="control-sidebar">
+                <!-- Scale Selection -->
+                <div class="panel-section">
+                    <div class="panel-title">
+                        <span>MAP SCALE (축척)</span>
+                        <span id="current-scale-label" style="color: var(--accent-cyan);">50m</span>
+                    </div>
+                    <div class="scale-grid" id="scale-selector">
+                        <button class="scale-btn" data-scale="10">10 m</button>
+                        <button class="scale-btn" data-scale="20">20 m</button>
+                        <button class="scale-btn active" data-scale="50">50 m</button>
+                        <button class="scale-btn" data-scale="100">100 m</button>
+                        <button class="scale-btn" data-scale="200">200 m</button>
+                        <button class="scale-btn" data-scale="500">500 m</button>
+                    </div>
+                </div>
+
+                <!-- Formation Presets -->
+                <div class="panel-section">
+                    <div class="panel-title">FORMATION PRESETS</div>
+                    <div class="preset-grid">
+                        <button class="preset-btn" id="preset-octagon">⬡ Octagon Ring</button>
+                        <button class="preset-btn" id="preset-grid">⊞ 2x4 Tactical</button>
+                        <button class="preset-btn" id="preset-line">━ Convoy Line</button>
+                        <button class="preset-btn" id="preset-cluster">❖ 2-Cluster Mesh</button>
+                    </div>
+                </div>
+
+                <!-- Simulation & RF Parameters -->
+                <div class="panel-section">
+                    <div class="panel-title">RF & TRANSMISSION</div>
+                    
+                    <div class="param-row">
+                        <div class="param-header">
+                            <span>Update Rate (전송 주기)</span>
+                            <span class="param-value" id="val-rate">30 Hz (33ms)</span>
+                        </div>
+                        <input type="range" id="slider-rate" min="10" max="50" step="5" value="30">
+                    </div>
+
+                    <div class="param-row">
+                        <div class="param-header">
+                            <span>Path Loss Exp (n)</span>
+                            <span class="param-value" id="val-ple">2.8</span>
+                        </div>
+                        <input type="range" id="slider-ple" min="2.0" max="4.0" step="0.1" value="2.8">
+                    </div>
+
+                    <div class="param-row">
+                        <div class="param-header">
+                            <span>Shadowing Std (dB)</span>
+                            <span class="param-value" id="val-shadow">3.0 dB</span>
+                        </div>
+                        <input type="range" id="slider-shadow" min="0.0" max="8.0" step="0.5" value="3.0">
+                    </div>
+
+                    <div class="param-row">
+                        <div class="param-header">
+                            <span>Carrier Freq (fc)</span>
+                            <span class="param-value" id="val-freq">2.4 GHz</span>
+                        </div>
+                        <input type="range" id="slider-freq" min="1.0" max="6.0" step="0.2" value="2.4">
+                    </div>
+
+                    <div class="param-row" style="margin-bottom: 0;">
+                        <div class="param-header">
+                            <span>Tx Power (dBm)</span>
+                            <span class="param-value" id="val-txpwr">23 dBm</span>
+                        </div>
+                        <input type="range" id="slider-txpwr" min="10" max="30" step="1" value="23">
+                    </div>
+                </div>
+
+                <!-- Selected Node Telemetry -->
+                <div class="panel-section" style="flex: 1; display: flex; flex-direction: column;">
+                    <div class="panel-title">
+                        <span>SELECTED NODE</span>
+                        <span id="selected-node-badge-text" style="color: var(--accent-green);">NODE 1</span>
+                    </div>
+
+                    <div class="node-card" id="node-telemetry-box">
+                        <div class="node-card-header">
+                            <div class="node-badge" id="sel-node-color-badge" style="background: #00f0ff;">1</div>
+                            <div>
+                                <strong id="sel-node-name">NODE 1 (Alpha)</strong>
+                                <div style="font-size: 10px; color: var(--text-secondary);" id="sel-node-role">Squad Leader / Gateway</div>
+                            </div>
+                        </div>
+
+                        <div class="node-details-grid">
+                            <div class="detail-item">
+                                <span class="detail-label">COORD X</span>
+                                <span class="detail-val" id="sel-node-x">0.0 m</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">COORD Y</span>
+                                <span class="detail-val" id="sel-node-y">0.0 m</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">VELOCITY</span>
+                                <span class="detail-val" id="sel-node-vel">0.0 m/s</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">HEADING</span>
+                                <span class="detail-val" id="sel-node-heading">0.0°</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Nearest Link Summary -->
+                    <div style="margin-top: 10px; font-size: 11px; color: var(--text-secondary);">
+                        <div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">ACTIVE LINKS STATUS</div>
+                        <div id="links-summary-list" style="max-height: 120px; overflow-y: auto; font-family: var(--font-mono); font-size: 10px;">
+                            <!-- Injected by JS -->
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Canvas Viewport -->
+            <main class="canvas-wrapper" id="canvas-container">
+                <canvas id="viewport-canvas"></canvas>
+
+                <!-- Floating Canvas HUD Top -->
+                <div class="canvas-hud-top">
+                    <div>ZOOM: <span id="hud-zoom-val" style="color: var(--accent-cyan);">100%</span></div>
+                    <div>PAN: <span id="hud-pan-val" style="color: var(--text-primary);">(0m, 0m)</span></div>
+                    <div>NODES: <span style="color: var(--accent-green);">8 ONLINE</span></div>
+                </div>
+
+                <!-- Floating Zoom Controls -->
+                <div class="floating-nav">
+                    <button class="nav-icon-btn" id="btn-zoom-in" title="Zoom In">+</button>
+                    <button class="nav-icon-btn" id="btn-zoom-out" title="Zoom Out">−</button>
+                    <button class="nav-icon-btn" id="btn-recenter" title="Recenter Origin">🎯</button>
+                </div>
+
+                <!-- Bottom Scale Bar -->
+                <div class="canvas-hud-bottom">
+                    <div class="scale-bar-container">
+                        <div class="scale-bar-text" id="scale-bar-label">50 m</div>
+                        <div class="scale-bar-line" id="scale-bar-line"></div>
+                    </div>
+                </div>
+
+                <div class="controls-hint">
+                    🖱️ <b>좌클릭 노드 드래그</b>: 위치 이동 &nbsp;|&nbsp; <b>좌클릭 빈공간 / 우클릭 드래그</b>: 맵 Pan 이동 &nbsp;|&nbsp; <b>휠</b>: Zoom
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/client/wireless.js"></script>
+    <script src="/static/client/app.js"></script>
+</body>
+</html>

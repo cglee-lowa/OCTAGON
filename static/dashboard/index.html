@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCTAMAN | Server Link Matrix Monitor</title>
+    <link rel="stylesheet" href="/static/dashboard/dashboard.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <header>
+        <div class="brand">
+            <span class="brand-badge">OCTAMAN SERVER</span>
+            <span class="brand-title">8x8 MANET WIRELESS PARAMETER MONITOR</span>
+        </div>
+
+        <div class="header-telemetry">
+            <div class="metric-pill">
+                <span id="srv-dot" class="dot"></span>
+                <span id="srv-status-text">LISTENING</span>
+            </div>
+            <div class="metric-pill">
+                <span>RX RATE:</span>
+                <span id="rx-rate-display" style="color: var(--accent-green); font-weight: bold;">0.0 Hz</span>
+            </div>
+            <div class="metric-pill">
+                <span>PACKETS:</span>
+                <span id="rx-pkts-display" style="color: var(--accent-cyan); font-weight: bold;">0</span>
+            </div>
+            <div class="metric-pill">
+                <span>DELAY:</span>
+                <span id="client-latency-display">0 ms</span>
+            </div>
+            <a href="/client" target="_blank" style="color: var(--accent-cyan); text-decoration: none; font-size: 11px; border: 1px solid var(--border-accent); padding: 4px 8px; border-radius: 4px;">
+                OPEN OCTAGON CLIENT ↗
+            </a>
+        </div>
+    </header>
+
+    <div class="dashboard-container">
+        <!-- Left: Matrix & Nodes -->
+        <main class="matrix-section">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span>8x8 MANET LINK MATRIX</span>
+                        <span id="matrix-units-tag" style="font-size: 11px; color: var(--accent-yellow); font-family: var(--font-mono);">(Path Loss in dB)</span>
+                    </div>
+
+                    <!-- Metric Tabs -->
+                    <div class="metric-tabs">
+                        <button class="tab-btn active" data-metric="pathLoss">PATH LOSS</button>
+                        <button class="tab-btn" data-metric="delayNs">DELAY</button>
+                        <button class="tab-btn" data-metric="fading">FADING</button>
+                        <button class="tab-btn" data-metric="rmsDelaySpreadNs">MULTIPATH</button>
+                        <button class="tab-btn" data-metric="dopplerHz">DOPPLER</button>
+                        <button class="tab-btn" data-metric="rssiDbm">RSSI</button>
+                    </div>
+                </div>
+
+                <!-- Matrix Table -->
+                <div class="matrix-table-container">
+                    <table class="matrix-table" id="link-matrix-table">
+                        <thead>
+                            <tr id="matrix-head-row">
+                                <th>Tx \ Rx</th>
+                                <th>N1</th>
+                                <th>N2</th>
+                                <th>N3</th>
+                                <th>N4</th>
+                                <th>N5</th>
+                                <th>N6</th>
+                                <th>N7</th>
+                                <th>N8</th>
+                            </tr>
+                        </thead>
+                        <tbody id="matrix-body">
+                            <!-- Injected by JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Legend -->
+                <div class="legend-bar">
+                    <span id="legend-min">Min (Low)</span>
+                    <div class="legend-gradient" id="legend-gradient-bar" style="background: linear-gradient(90deg, #00ff88, #ffb703, #ff3366);"></div>
+                    <span id="legend-max">Max (High)</span>
+                </div>
+            </div>
+
+            <!-- Nodes Position & Velocity Cards -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span>8 NODE STATUS TELEMETRY</span>
+                        <span id="current-sim-scale" style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">SCALE: 50m</span>
+                    </div>
+                </div>
+                <div class="node-overview-grid" id="node-grid-overview">
+                    <!-- 8 Node mini cards populated by JS -->
+                </div>
+            </div>
+        </main>
+
+        <!-- Right: Inspector Sidebar -->
+        <aside class="inspector-section">
+            <div class="card">
+                <div class="card-title" style="margin-bottom: 12px;">LINK INSPECTOR</div>
+                <div class="link-inspector-box">
+                    <div class="link-pair-title">
+                        <span id="inspect-pair-label">NODE 1 ⇄ NODE 2</span>
+                        <span id="inspect-distance" style="font-size: 12px; color: #fff;">0.0 m</span>
+                    </div>
+
+                    <div class="param-grid">
+                        <div class="param-item">
+                            <div class="param-label">Path Loss</div>
+                            <div class="param-value" id="val-ins-pl" style="color: var(--accent-yellow);">-- dB</div>
+                        </div>
+                        <div class="param-item">
+                            <div class="param-label">RSSI</div>
+                            <div class="param-value" id="val-ins-rssi" style="color: var(--accent-green);">-- dBm</div>
+                        </div>
+                        <div class="param-item">
+                            <div class="param-label">Propagation Delay</div>
+                            <div class="param-value" id="val-ins-delay" style="color: var(--accent-cyan);">-- ns</div>
+                        </div>
+                        <div class="param-item">
+                            <div class="param-label">Doppler Shift</div>
+                            <div class="param-value" id="val-ins-doppler" style="color: var(--accent-blue);">-- Hz</div>
+                        </div>
+                        <div class="param-item">
+                            <div class="param-label">Total Fading</div>
+                            <div class="param-value" id="val-ins-fading">-- dB</div>
+                        </div>
+                        <div class="param-item">
+                            <div class="param-label">RMS Delay Spread</div>
+                            <div class="param-value" id="val-ins-spread">-- ns</div>
+                        </div>
+                    </div>
+
+                    <!-- Multipath 3-Ray Tap Model -->
+                    <div style="font-size: 11px; font-weight: bold; margin-bottom: 6px; color: var(--accent-cyan);">
+                        MULTIPATH RAY PROFILE (3-TAP)
+                    </div>
+                    <div class="multipath-taps" id="multipath-taps-list">
+                        <div class="tap-row">
+                            <span>Direct Ray (Tap 1)</span>
+                            <span style="color: var(--accent-green);">0 ns &nbsp;|&nbsp; 0.0 dB</span>
+                        </div>
+                        <div class="tap-row">
+                            <span>Ground Refl (Tap 2)</span>
+                            <span id="tap2-val" style="color: var(--accent-yellow);">-- ns &nbsp;|&nbsp; -5.2 dB</span>
+                        </div>
+                        <div class="tap-row">
+                            <span>Clutter Scatter (Tap 3)</span>
+                            <span id="tap3-val" style="color: var(--accent-red);">-- ns &nbsp;|&nbsp; -13.8 dB</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Server Stream Log -->
+            <div class="card" style="flex: 1; display: flex; flex-direction: column;">
+                <div class="card-title" style="margin-bottom: 10px;">WEBSOCKET EVENT STREAM</div>
+                <div class="log-box" id="stream-log-box">
+                    <div class="log-entry"><span class="time">[INIT]</span> Initializing Octaman Server monitor...</div>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/dashboard/dashboard.js"></script>
+</body>
+</html>
