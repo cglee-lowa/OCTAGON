@@ -125,12 +125,14 @@
 ```
 OCTAGON/
 ├── server.py                 # FastAPI WebSocket 서버 + Rich Live 터미널 콘솔 + REST API
+├── SYSTEM_DESIGN.md          # AI Agent 및 개발자를 위한 상세 아키텍처/수학모델 설계 사양서
 ├── static/
 │   ├── client/               # Octagon Web App (에뮬레이터)
 │   │   ├── index.html        # 에뮬레이터 UI 레이아웃
 │   │   ├── style.css         # 전술 Cybernetic 다크 테마 스타일
+│   │   ├── terrain.js        # 문정역 실지형 높이맵, 3D 빌딩, LOS/회절 광선추적 엔진
 │   │   ├── wireless.js       # 5대 무선 채널 모델 연산 엔진
-│   │   └── app.js            # Canvas 렌더러, 노드 물리 엔진, 드래그/줌, WebSocket 전송
+│   │   └── app.js            # 2D/3D Canvas 렌더러, 노드 물리 엔진, 드래그/줌, WebSocket 전송
 │   └── dashboard/            # Octaman Server 대시보드
 │       ├── index.html        # 모니터링 대시보드 UI
 │       ├── dashboard.css     # 8x8 매트릭스 및 인스펙터 스타일
@@ -142,6 +144,8 @@ OCTAGON/
 ├── requirements.txt          # 파이썬 의존 패키지 목록
 └── README.md                 # 프로젝트 종합 안내 문서
 ```
+
+> 📖 **아키텍처 및 세부 설계 상세:** AI Agent 또는 개발자가 무선 물리 수식, 3D 광선 추적 알고리즘, JSON 통신 스키마를 확장하거나 분석할 때는 [`SYSTEM_DESIGN.md`](./SYSTEM_DESIGN.md)를 참조하십시오.
 
 ---
 
