@@ -52,6 +52,13 @@ class OctagonApp {
 
         // Tactical Terrain Engine (Munjeong station default)
         this.terrain = new TacticalTerrain('munjeong');
+        this.terrain.loadRegionalData().then(() => {
+            const status = document.getElementById('terrain-data-status');
+            if (!status) return;
+            status.textContent = this.terrain.mapLoadStatus === 'loaded'
+                ? `OSM buildings ${this.terrain.osmBuildingCount.toLocaleString()} · DEM loaded`
+                : this.terrain.mapLoadStatus === 'partial' ? 'Map data partially loaded' : 'Built-in terrain fallback';
+        });
         this.showContours = true;
         this.showBuildings = true;
 

@@ -14,6 +14,10 @@ class TacticalTerrain {
         this.metroLine = null;
         this.cultureValley = null;
         this.roads = [];
+        this.osmFeatures = [];
+        this.demGrid = null;
+        this.structureIndex = null;
+        this.mapLoadStatus = 'loading';
         this.loadPreset(preset);
     }
 
@@ -39,22 +43,27 @@ class TacticalTerrain {
             // 7. 장지천 합류부 남측 (Y: -160, 고도 16m)
             // 8. 문정근린공원 녹지대 (Foliage Clutter, 동북측 X: 40~120, Y: 130~180)
 
-            // 자연 지형 경사 (서측 탄천 해발 14m -> 문정역 24m -> 동측 법조타운 29m)
-            this.features = [
-                { type: 'slope_plane', baseElev: 22.0, xSlope: 0.04, ySlope: 0.01 },
-                // 동측 구릉지 잔여 지형 (문정 고지)
-                { type: 'peak', x: 210, y: 120, height: 16, radiusX: 90, radiusY: 80, angle: 0.2, label: "문동 구릉" }
-            ];
+            // 문정역 주변은 탄천 동측의 낮고 완만한 도시 평탄지다.
+            // 6km 영역에서는 지역의 완만한 동향 경사만 이어가고, 근거리 경사는 부드럽게 감쇠한다.
+            this.features = [];
 
             // 탄천 (서측 남북 관통 하천, 폭 32m)
             this.river = {
                 name: "탄천 (Tancheon River)",
                 points: [
+                    { x: -250, y: 3000 },
+                    { x: -225, y: 2200 },
+                    { x: -205, y: 1400 },
+                    { x: -190, y: 700 },
                     { x: -190, y: 220 },
                     { x: -180, y: 120 },
                     { x: -185, y: 0 },
                     { x: -200, y: -120 },
-                    { x: -220, y: -220 }
+                    { x: -220, y: -220 },
+                    { x: -245, y: -700 },
+                    { x: -270, y: -1400 },
+                    { x: -300, y: -2200 },
+                    { x: -330, y: -3000 }
                 ],
                 width: 32,
                 waterElev: 13.5
@@ -132,6 +141,98 @@ class TacticalTerrain {
         }
     }
 
+    async loadRegionalData() {
+        if (this.preset !== 'munjeong') return;
+        const center = { lat: 37.48593, lon: 127.12236 };
+        const latRadius = 3000 / 111320;
+        const lonRadius = 3000 / (111320 * Math.cos(center.lat * Math.PI / 180));
+        const bounds = [center.lat - latRadius, center.lon - lonRadius, center.lat + latRadius, center.lon + lonRadius];
+
+        // OpenStreetMap building footprints, waterways and roads for the exact 6km square.
+        const bbox = bounds.join(',');
+        const query = `[out:json][timeout:45];(way["building"](${bbox});way["building:part"](${bbox});way["waterway"](${bbox});way["natural"="water"](${bbox});way["highway"](${bbox}););out geom;`;
+        try {
+            let response;
+            for (const endpoint of ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter']) {
+                try {
+                    response = await fetch(endpoint, {
+                        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+                        body: `data=${encodeURIComponent(query)}`
+                    });
+                    if (response.ok) break;
+                } catch (error) { /* try the next public endpoint */ }
+            }
+            if (!response.ok) throw new Error(`OpenStreetMap ${response.status}`);
+            const data = await response.json();
+            const toLocal = (point) => ({
+                x: (point.lon - center.lon) * 111320 * Math.cos(center.lat * Math.PI / 180),
+                y: (point.lat - center.lat) * 111320
+            });
+            const features = [];
+            for (const way of data.elements || []) {
+                if (!way.geometry || way.geometry.length < 2) continue;
+                const points = way.geometry.map(toLocal);
+                const tags = way.tags || {};
+                if (tags.building || tags['building:part']) {
+                    if (points.length < 4 || Math.hypot(points[0].x - points.at(-1).x, points[0].y - points.at(-1).y) > 2) continue;
+                    const heightTag = parseFloat(tags.height);
+                    const levels = parseFloat(tags['building:levels']);
+                    const height = Number.isFinite(heightTag) ? heightTag : (Number.isFinite(levels) ? levels * 3.2 : (tags.building === 'apartments' ? 24 : 9));
+                    features.push({ kind: 'building', id: `osm-${way.id}`, name: tags.name || tags['name:ko'] || '', footprint: points.slice(0, -1), height: Math.max(3, height), estimatedHeight: !Number.isFinite(heightTag) && !Number.isFinite(levels) });
+                } else if (tags.waterway || tags.natural === 'water' || tags.highway) {
+                    features.push({ kind: tags.waterway || tags.natural === 'water' ? 'water' : 'road', name: tags.name || '', points, width: parseFloat(tags.width) || 0, highway: tags.highway || '' });
+                }
+            }
+            this.osmFeatures = features;
+            this.structures = features.filter((feature) => feature.kind === 'building').map((feature) => ({
+                id: feature.id, label: feature.name || 'OSM building', footprint: feature.footprint,
+                x: feature.footprint.reduce((sum, p) => sum + p.x, 0) / feature.footprint.length,
+                y: feature.footprint.reduce((sum, p) => sum + p.y, 0) / feature.footprint.length,
+                height: feature.height, estimatedHeight: feature.estimatedHeight
+            }));
+            this.river = null;
+            this.osmBuildingCount = this.structures.length;
+            this.structureIndex = new Map();
+            const cellSize = 100;
+            for (const structure of this.structures) {
+                const xs = structure.footprint.map(point => point.x), ys = structure.footprint.map(point => point.y);
+                for (let gx = Math.floor(Math.min(...xs) / cellSize); gx <= Math.floor(Math.max(...xs) / cellSize); gx++) {
+                    for (let gy = Math.floor(Math.min(...ys) / cellSize); gy <= Math.floor(Math.max(...ys) / cellSize); gy++) {
+                        const key = `${gx}:${gy}`;
+                        if (!this.structureIndex.has(key)) this.structureIndex.set(key, []);
+                        this.structureIndex.get(key).push(structure);
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn('Actual OSM map data could not be loaded; using the built-in Munjeong reference model.', error);
+            this.mapLoadStatus = 'fallback';
+        }
+
+        // Open-Meteo Copernicus 90m DEM. Sample the complete map at 150m intervals.
+        try {
+            const samples = [];
+            for (let y = -3000; y <= 3000; y += 150) {
+                for (let x = -3000; x <= 3000; x += 150) {
+                    samples.push({ x, y, lat: center.lat + y / 111320, lon: center.lon + x / (111320 * Math.cos(center.lat * Math.PI / 180)) });
+                }
+            }
+            const elevations = [];
+            for (let i = 0; i < samples.length; i += 100) {
+                const batch = samples.slice(i, i + 100);
+                const params = new URLSearchParams({ latitude: batch.map(p => p.lat.toFixed(6)).join(','), longitude: batch.map(p => p.lon.toFixed(6)).join(',') });
+                const response = await fetch(`https://api.open-meteo.com/v1/elevation?${params}`);
+                if (!response.ok) throw new Error(`DEM ${response.status}`);
+                const data = await response.json();
+                elevations.push(...data.elevation);
+            }
+            if (elevations.length === samples.length) this.demGrid = { values: elevations, columns: 41, step: 150, min: -3000 };
+        } catch (error) {
+            console.warn('Copernicus DEM could not be loaded; using the built-in Munjeong elevation model.', error);
+        }
+        if (this.mapLoadStatus !== 'fallback') this.mapLoadStatus = this.osmFeatures.length && this.demGrid ? 'loaded' : 'partial';
+    }
+
     /**
      * Get continuous terrain elevation at world coordinate (x, y) in meters
      */
@@ -139,8 +240,21 @@ class TacticalTerrain {
         let z = 0.0;
 
         if (this.preset === 'munjeong') {
-            // 기본 완만한 서고동저 지형 (탄천 방향으로 낮아짐)
-            z = 23.0 + (x * 0.035) + (y * 0.008);
+            if (this.demGrid && x >= -3000 && x <= 3000 && y >= -3000 && y <= 3000) {
+                const gx = (x + 3000) / this.demGrid.step;
+                const gy = (y + 3000) / this.demGrid.step;
+                const x0 = Math.min(Math.floor(gx), 39), y0 = Math.min(Math.floor(gy), 39);
+                const tx = gx - x0, ty = gy - y0, n = this.demGrid.columns;
+                const at = (ix, iy) => this.demGrid.values[iy * n + ix];
+                const a = at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx;
+                const b = at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx;
+                return a * (1 - ty) + b * ty;
+            }
+            // 지역의 낮은 동향 경사와 문정역 인근의 완만한 기복을 결합한다.
+            // 근거리에서는 기존 고도 차이를 유지하고, 수 km 범위에서 경사가 과장되지 않도록 감쇠한다.
+            z = 23.0 + (x * 0.0015) + (y * 0.0005)
+                + (x * 0.035 / (1 + Math.abs(x) / 500))
+                + (y * 0.008 / (1 + Math.abs(y) / 500));
 
             // 탄천 하천 저지대 감고
             if (this.river) {
@@ -232,7 +346,19 @@ class TacticalTerrain {
     }
 
     getStructureAt(x, y) {
-        for (const s of this.structures) {
+        const candidates = this.structureIndex
+            ? (this.structureIndex.get(`${Math.floor(x / 100)}:${Math.floor(y / 100)}`) || [])
+            : this.structures;
+        for (const s of candidates) {
+            if (s.footprint) {
+                let inside = false;
+                for (let i = 0, j = s.footprint.length - 1; i < s.footprint.length; j = i++) {
+                    const a = s.footprint[i], b = s.footprint[j];
+                    if ((a.y > y) !== (b.y > y) && x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+                }
+                if (inside) return s;
+                continue;
+            }
             if (x >= s.x - s.w / 2 && x <= s.x + s.w / 2 &&
                 y >= s.y - s.h / 2 && y <= s.y + s.h / 2) {
                 return s;
@@ -456,28 +582,38 @@ class TacticalTerrain {
         // 5. 문정역 및 법조타운/지식산업센터 빌딩 (3D 입체 섀도우 풋프린트)
         for (const s of this.structures) {
             const sp = worldToScreen(s.x, s.y);
-            const sw = s.w * pixelsPerMeter;
-            const sh = s.h * pixelsPerMeter;
+            const footprint = s.footprint || [
+                { x: s.x - s.w / 2, y: s.y - s.h / 2 }, { x: s.x + s.w / 2, y: s.y - s.h / 2 },
+                { x: s.x + s.w / 2, y: s.y + s.h / 2 }, { x: s.x - s.w / 2, y: s.y + s.h / 2 }
+            ];
+            const outline = footprint.map(point => worldToScreen(point.x, point.y));
+            const minX = Math.min(...outline.map(point => point.x)), maxX = Math.max(...outline.map(point => point.x));
+            const minY = Math.min(...outline.map(point => point.y)), maxY = Math.max(...outline.map(point => point.y));
+            if (maxX < 0 || minX > ctx.canvas.width || maxY < 0 || minY > ctx.canvas.height) continue;
 
             ctx.save();
             // 빌딩 그림자
             const shadowOff = Math.min(s.height * 0.25 * pixelsPerMeter, 18);
             ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-            ctx.fillRect(sp.x - sw / 2 + shadowOff, sp.y - sh / 2 + shadowOff, sw, sh);
+            ctx.beginPath();
+            outline.forEach((point, index) => index ? ctx.lineTo(point.x + shadowOff, point.y + shadowOff) : ctx.moveTo(point.x + shadowOff, point.y + shadowOff));
+            ctx.closePath(); ctx.fill();
 
             // 빌딩 본체 (어두운 네이비 슬레이트)
-            ctx.fillStyle = s.color || 'rgba(25, 40, 60, 0.85)';
-            ctx.fillRect(sp.x - sw / 2, sp.y - sh / 2, sw, sh);
+            ctx.fillStyle = s.color || (s.estimatedHeight ? 'rgba(47, 58, 68, 0.9)' : 'rgba(25, 40, 60, 0.85)');
+            ctx.beginPath();
+            outline.forEach((point, index) => index ? ctx.lineTo(point.x, point.y) : ctx.moveTo(point.x, point.y));
+            ctx.closePath(); ctx.fill();
 
             // 빌딩 테두리 및 옥상 프레임
-            ctx.strokeStyle = s.id === 'station' ? '#ff3366' : 'rgba(0, 210, 255, 0.7)';
+            ctx.strokeStyle = s.id === 'station' ? '#ff3366' : (s.estimatedHeight ? 'rgba(130, 150, 165, 0.7)' : 'rgba(0, 210, 255, 0.7)');
             ctx.lineWidth = s.id === 'station' ? 2.0 : 1.2;
-            ctx.strokeRect(sp.x - sw / 2, sp.y - sh / 2, sw, sh);
+            ctx.stroke();
 
             // 라벨
             ctx.fillStyle = s.id === 'station' ? '#ff6b8b' : '#ffcf40';
             ctx.font = 'bold 10px "JetBrains Mono", monospace';
-            ctx.fillText(`🏢 ${s.label}`, sp.x - sw / 2 + 4, sp.y - sh / 2 - 5);
+            if (!s.footprint || s.height >= 25) ctx.fillText(`🏢 ${s.label}${s.estimatedHeight ? ' ~' : ''}`, minX + 4, minY - 5);
             ctx.restore();
         }
 
@@ -575,7 +711,7 @@ class TacticalTerrain {
         const { pitch = 40 * Math.PI / 180, yaw = -35 * Math.PI / 180, zoom = 1.0, cx = 0, cy = 0 } = camera;
         const cosY = Math.cos(yaw), sinY = Math.sin(yaw);
         const cosP = Math.cos(pitch), sinP = Math.sin(pitch);
-        const fov = 650 * zoom;
+        const fov = 1100 * zoom;
 
         // 3D 월드 좌표 (x: 동/서, y: 남/북, z: 고도) -> 2D 화면 투영
         const project3D = (wx, wy, wz) => {
@@ -589,7 +725,7 @@ class TacticalTerrain {
 
             // Pitch 회전
             const camY = yRot * cosP - rz * sinP;
-            const camZ = yRot * sinP + rz * cosP + 450; // 카메라 후방 오프셋
+            const camZ = yRot * sinP + rz * cosP + 8000; // 광역 지형이 한 화면에 들어오도록 원거리 투영
 
             const scale = fov / Math.max(camZ, 10.0);
             return {
@@ -600,8 +736,9 @@ class TacticalTerrain {
         };
 
         // 1. 지표면 격자 (3D 와이어프레임 메쉬 & 탄천 표현)
-        const gridSize = 320;
-        const step = 35;
+        // 문정역 중심의 6km × 6km 광역 지형 (±3km), 약 150m 간격 메쉬
+        const gridSize = 3000;
+        const step = 150;
         ctx.strokeStyle = 'rgba(25, 45, 65, 0.45)';
         ctx.lineWidth = 1.0;
 
@@ -645,28 +782,35 @@ class TacticalTerrain {
 
         // 2. 문정역 법조타운 3D 빌딩 솔리드 렌더링 (Z-sort)
         const sortedStructures = [...this.structures].sort((a, b) => {
-            const pa = project3D(a.x, a.y, a.baseElev);
-            const pb = project3D(b.x, b.y, b.baseElev);
+            const pa = project3D(a.x, a.y, this.getElevation(a.x, a.y) + a.height);
+            const pb = project3D(b.x, b.y, this.getElevation(b.x, b.y) + b.height);
             return pb.depth - pa.depth;
         });
+
+        // 실제 OSM 도로와 수계를 3D 지표면 위에 표시한다.
+        for (const feature of this.osmFeatures) {
+            if (feature.kind === 'building' || feature.points.length < 2) continue;
+            ctx.beginPath();
+            feature.points.forEach((point, index) => {
+                const p = project3D(point.x, point.y, this.getElevation(point.x, point.y) + 0.8);
+                if (index === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+            });
+            ctx.strokeStyle = feature.kind === 'water' ? 'rgba(0, 180, 255, 0.8)' : 'rgba(133, 151, 166, 0.36)';
+            ctx.lineWidth = feature.kind === 'water' ? 3 : (['motorway', 'trunk', 'primary', 'secondary'].includes(feature.highway) ? 1.8 : 0.8);
+            ctx.stroke();
+        }
 
         for (const s of sortedStructures) {
             const baseZ = this.getElevation(s.x, s.y);
             const topZ = baseZ + s.height;
-            const hw = s.w / 2;
-            const hh = s.h / 2;
-
-            // 바닥 모서리 4개
-            const b1 = project3D(s.x - hw, s.y - hh, baseZ);
-            const b2 = project3D(s.x + hw, s.y - hh, baseZ);
-            const b3 = project3D(s.x + hw, s.y + hh, baseZ);
-            const b4 = project3D(s.x - hw, s.y + hh, baseZ);
-
-            // 옥상 모서리 4개
-            const t1 = project3D(s.x - hw, s.y - hh, topZ);
-            const t2 = project3D(s.x + hw, s.y - hh, topZ);
-            const t3 = project3D(s.x + hw, s.y + hh, topZ);
-            const t4 = project3D(s.x - hw, s.y + hh, topZ);
+            const footprint = s.footprint || [
+                { x: s.x - s.w / 2, y: s.y - s.h / 2 }, { x: s.x + s.w / 2, y: s.y - s.h / 2 },
+                { x: s.x + s.w / 2, y: s.y + s.h / 2 }, { x: s.x - s.w / 2, y: s.y + s.h / 2 }
+            ];
+            const base = footprint.map(p => project3D(p.x, p.y, this.getElevation(p.x, p.y)));
+            const roof = footprint.map(p => project3D(p.x, p.y, this.getElevation(p.x, p.y) + s.height));
+            const centerPoint = project3D(s.x, s.y, topZ);
+            if (centerPoint.x < -1000 || centerPoint.x > w + 1000 || centerPoint.y < -1000 || centerPoint.y > h + 1000) continue;
 
             // 벽면 채우기
             const drawWall = (pA, pB, pC, pD, fill, stroke) => {
@@ -682,29 +826,31 @@ class TacticalTerrain {
                 ctx.stroke();
             };
 
-            // 3D 빌딩 바디 (명암 차등 부여)
-            drawWall(b1, b2, t2, t1, 'rgba(18, 32, 48, 0.85)', 'rgba(0, 200, 255, 0.4)');
-            drawWall(b2, b3, t3, t2, 'rgba(25, 42, 62, 0.85)', 'rgba(0, 200, 255, 0.5)');
-            drawWall(b3, b4, t4, t3, 'rgba(15, 26, 40, 0.85)', 'rgba(0, 200, 255, 0.3)');
-            drawWall(b4, b1, t1, t4, 'rgba(20, 36, 54, 0.85)', 'rgba(0, 200, 255, 0.4)');
+            // OSM 실제 외곽선을 따라 건물 벽과 지붕을 입체화한다.
+            for (let i = 0; i < base.length; i++) {
+                const next = (i + 1) % base.length;
+                drawWall(base[i], base[next], roof[next], roof[i], 'rgba(18, 32, 48, 0.85)', 'rgba(0, 200, 255, 0.32)');
+            }
 
             // 옥상 상판 (하이라이트)
             ctx.beginPath();
-            ctx.moveTo(t1.x, t1.y);
-            ctx.lineTo(t2.x, t2.y);
-            ctx.lineTo(t3.x, t3.y);
-            ctx.lineTo(t4.x, t4.y);
+            ctx.moveTo(roof[0].x, roof[0].y);
+            for (let i = 1; i < roof.length; i++) ctx.lineTo(roof[i].x, roof[i].y);
             ctx.closePath();
-            ctx.fillStyle = s.id === 'station' ? 'rgba(180, 40, 60, 0.9)' : 'rgba(38, 62, 90, 0.95)';
+            ctx.fillStyle = s.id === 'station' ? 'rgba(180, 40, 60, 0.9)' : (s.estimatedHeight ? 'rgba(48, 57, 68, 0.95)' : 'rgba(38, 62, 90, 0.95)');
             ctx.fill();
-            ctx.strokeStyle = s.id === 'station' ? '#ff3366' : '#00d2ff';
+            ctx.strokeStyle = s.id === 'station' ? '#ff3366' : (s.estimatedHeight ? '#657789' : '#00d2ff');
             ctx.lineWidth = 1.5;
             ctx.stroke();
 
             // 3D 빌딩 라벨
             ctx.fillStyle = '#ffcf40';
             ctx.font = 'bold 10px "JetBrains Mono", monospace';
-            ctx.fillText(`⌂ ${s.label}`, t1.x, t1.y - 6);
+            if (s.footprint && (centerPoint.x > 0 && centerPoint.x < w && centerPoint.y > 0 && centerPoint.y < h) && s.height > 25) {
+                ctx.fillText(`⌂ ${s.label}${s.estimatedHeight ? ' ~' : ''}`, roof[0].x, roof[0].y - 6);
+            } else if (!s.footprint) {
+                ctx.fillText(`⌂ ${s.label}`, roof[0].x, roof[0].y - 6);
+            }
         }
 
         // 3. 무선 링크 (LOS는 형광 녹색 실선, NLOS/차폐는 붉은색 점선 & 차폐점 표시)
