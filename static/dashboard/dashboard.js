@@ -196,7 +196,7 @@ class DashboardMonitor {
         }
 
         if (data.scale_m) {
-            const terrainName = data.terrain_preset === 'munjeong' ? '문정역 실지형' : (data.terrain_preset || 'Standard');
+            const terrainName = data.terrain_preset === 'cesium_world' ? 'Cesium World Terrain' : (data.terrain_preset || 'Cesium World Terrain');
             document.getElementById('current-sim-scale').textContent = `TERRAIN: ${terrainName} | SCALE: ${data.scale_m}m | ${data.carrier_freq_ghz || 2.4}GHz`;
         }
 
@@ -316,6 +316,7 @@ class DashboardMonitor {
                         <span class="node-speed-txt" style="color: var(--text-muted);">0.0 m/s</span>
                     </div>
                     <div class="node-pos-txt" style="color: #fff; font-size: 10px;">X: 0.0m, Y: 0.0m</div>
+                    <div class="node-geopos-txt" style="color: var(--text-muted); font-size: 9px;">Lat/Lon: --</div>
                 `;
                 container.appendChild(card);
             }
@@ -330,6 +331,10 @@ class DashboardMonitor {
                 card.querySelector('.node-speed-txt').style.color = speed > 0.5 ? 'var(--accent-yellow)' : 'var(--text-muted)';
                 const zTxt = (n.z !== undefined) ? `, H: ${n.z.toFixed(1)}m` : '';
                 card.querySelector('.node-pos-txt').textContent = `X: ${n.x.toFixed(1)}m, Y: ${n.y.toFixed(1)}m${zTxt}`;
+                const geo = n.position_3d;
+                const validGeo = geo && Number.isFinite(geo.latitude) && Number.isFinite(geo.longitude)
+                    && Number.isFinite(geo.altitude_m) && !(geo.latitude === 0 && geo.longitude === 0);
+                if (validGeo) card.querySelector('.node-geopos-txt').textContent = `Lat: ${geo.latitude.toFixed(6)}, Lon: ${geo.longitude.toFixed(6)}, Alt: ${geo.altitude_m.toFixed(1)}m`;
             }
         }
     }

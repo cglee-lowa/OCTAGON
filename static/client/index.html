@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OCTAGON | MANET Wireless Emulator V1 (문정역 3D 전술지형)</title>
+    <title>OCTAGON | MANET Wireless Emulator V1 (Cesium 3D 지도)</title>
     <link rel="stylesheet" href="/static/client/style.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.145/Build/Cesium/Widgets/widgets.css">
     <script src="https://cdn.jsdelivr.net/npm/cesium@1.145/Build/Cesium/Cesium.js"></script>
@@ -18,7 +18,7 @@
                 <div class="brand-logo">8</div>
                 <div>
                     <div class="brand-title">OCTAGON &bull; MANET EMULATOR</div>
-                    <div class="brand-subtitle">문정역 실지형 3D 전술 무선 채널 시뮬레이터</div>
+                    <div class="brand-subtitle">Cesium 3D 지형 무선 채널 시뮬레이터</div>
                 </div>
             </div>
 
@@ -38,10 +38,6 @@
             </div>
 
             <div class="header-actions">
-                <div class="view-mode-toggle" style="display: flex; background: rgba(0,0,0,0.5); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px;">
-                    <button id="btn-view-2d" class="btn-mode active" style="padding: 4px 10px; font-size: 11px; border: none; background: var(--accent-cyan); color: #000; font-weight: bold; border-radius: 3px; cursor: pointer;">2D 전술맵</button>
-                    <button id="btn-view-3d" class="btn-mode" style="padding: 4px 10px; font-size: 11px; border: none; background: transparent; color: var(--text-secondary); font-weight: bold; border-radius: 3px; cursor: pointer;">3D 입체뷰</button>
-                </div>
                 <button id="btn-toggle-patrol" class="btn-tactical" title="노드 자동 기동 (도플러/링크 동적 변화)">
                     <span>▶ AUTO PATROL</span>
                 </button>
@@ -58,26 +54,43 @@
         <div class="main-body">
             <!-- Sidebar Controls -->
             <aside class="control-sidebar">
-                <!-- Tactical Terrain Selection -->
                 <div class="panel-section">
-                    <div class="panel-title">
-                        <span>TACTICAL TERRAIN (전술 지형)</span>
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 8px;">
-                        <select id="select-terrain-preset" style="background: #151e2b; color: #00f0ff; border: 1px solid #1e2c3f; border-radius: 4px; padding: 6px 10px; font-family: var(--font-mono); font-size: 12px; font-weight: bold; cursor: pointer;">
-                            <option value="munjeong" selected>📍 서울 송파 문정역 & 법조단지 (실지형)</option>
-                            <option value="ridge_valley">⛰️ 전술 산악 협곡 고지 (Ridge & Valley)</option>
-                            <option value="flat">⬛ Flat Open Plain (평지)</option>
-                        </select>
-                        <div style="display: flex; gap: 6px;">
-                            <button id="btn-toggle-contours" class="btn-tactical" style="flex: 1; font-size: 11px; justify-content: center;">
-                                <span>등고선 ON</span>
-                            </button>
-                            <button id="btn-toggle-buildings" class="btn-tactical" style="flex: 1; font-size: 11px; justify-content: center;">
-                                <span>건물 차폐 ON</span>
-                            </button>
-                        </div>
-                    </div>
+                    <div class="panel-title"><span>CESIUM 3D MAP LOCATION</span></div>
+                    <select id="select-map-location" style="width:100%; background:#151e2b; color:#00f0ff; border:1px solid #1e2c3f; border-radius:4px; padding:7px 8px; font-family:var(--font-mono); font-size:11px;">
+                        <optgroup label="주요 도시">
+                            <option value="munjeong" selected>서울 · 문정역</option>
+                            <option value="seoul">서울 · 시청</option>
+                            <option value="busan">부산 · 시청</option>
+                            <option value="incheon">인천 · 시청</option>
+                            <option value="daegu">대구 · 시청</option>
+                            <option value="daejeon">대전 · 시청</option>
+                            <option value="gwangju">광주 · 시청</option>
+                            <option value="ulsan">울산 · 시청</option>
+                            <option value="sejong">세종 · 정부청사</option>
+                            <option value="suwon">수원 · 화성행궁</option>
+                            <option value="jeju">제주 · 제주시청</option>
+                        </optgroup>
+                        <optgroup label="도시·명소">
+                            <option value="gyeongbokgung">서울 · 경복궁</option>
+                            <option value="namsan">서울 · 남산서울타워</option>
+                            <option value="lotte-world-tower">서울 · 롯데월드타워</option>
+                            <option value="songdo">인천 · 송도 센트럴파크</option>
+                            <option value="haeundae">부산 · 해운대</option>
+                            <option value="gyeongju">경주 · 불국사</option>
+                            <option value="jeonju">전주 · 한옥마을</option>
+                            <option value="seoraksan">설악산 · 국립공원</option>
+                            <option value="hallasan">제주 · 한라산</option>
+                            <option value="seongsan">제주 · 성산일출봉</option>
+                            <option value="dmz">파주 · 임진각</option>
+                        </optgroup>
+                    </select>
+                    <details style="margin-top:9px; color:var(--text-secondary); font-size:10px;">
+                        <summary style="cursor:pointer;">Cesium ion access token 설정</summary>
+                        <input id="cesium-ion-token" type="password" autocomplete="off" placeholder="Cesium ion token" style="width:100%; margin-top:7px; background:#0b1119; color:#fff; border:1px solid #26384d; border-radius:4px; padding:7px; font-size:10px;">
+                        <button id="btn-save-ion-token" class="btn-tactical" style="width:100%; margin-top:5px; justify-content:center;">토큰 저장 후 3D 데이터 연결</button>
+                        <a href="https://ion.cesium.com/tokens" target="_blank" rel="noreferrer" style="display:block; margin-top:5px; color:#00d2ff;">Cesium ion 토큰 발급 ↗</a>
+                        <div style="margin-top:4px;">토큰은 이 브라우저에만 저장됩니다.</div>
+                    </details>
                 </div>
 
                 <!-- Scale Selection -->
@@ -100,7 +113,7 @@
                 <div class="panel-section">
                     <div class="panel-title">FORMATION PRESETS (배치)</div>
                     <div class="preset-grid">
-                        <button class="preset-btn" id="preset-munjeong">📍 문정역 전술배치</button>
+                        <button class="preset-btn" id="preset-scatter">◎ 분산</button>
                         <button class="preset-btn" id="preset-octagon">⬡ Octagon Ring</button>
                         <button class="preset-btn" id="preset-grid">⊞ 2x4 Tactical</button>
                         <button class="preset-btn" id="preset-line">━ Convoy Line</button>
@@ -204,14 +217,13 @@
 
             <!-- Canvas Viewport -->
             <main class="canvas-wrapper" id="canvas-container">
-                <div id="cesium-container" aria-label="문정동 Cesium 3D 지형" style="display:none; position:absolute; inset:0;"></div>
-                <canvas id="viewport-canvas"></canvas>
+                <div id="cesium-container" aria-label="Cesium 대한민국 3D 지도" style="display:none; position:absolute; inset:0;"></div>
 
                 <!-- Floating Canvas HUD Top -->
                 <div class="canvas-hud-top">
-                    <div>TERRAIN: <span id="hud-terrain-val" style="color: #ffcf40; font-weight: bold;">문정역 실지형</span></div>
-                    <div>VIEW: <span id="hud-view-val" style="color: var(--accent-cyan);">2D 전술맵</span></div>
-                    <div>PAN/ROT: <span id="hud-pan-val" style="color: var(--text-primary);">(0m, 0m)</span></div>
+                    <div>MAP: <span id="hud-terrain-val" style="color: #ffcf40; font-weight: bold;">지도 중심</span></div>
+                    <div>VIEW: <span id="hud-view-val" style="color: var(--accent-cyan);">Cesium 3D 지도</span></div>
+                    <div>중심 좌표: <span id="hud-pan-val" style="color: var(--text-primary);">(0m, 0m)</span></div>
                     <div>NODES: <span style="color: var(--accent-green);">8 ONLINE</span></div>
                 </div>
 
@@ -230,17 +242,13 @@
                     </div>
                 </div>
 
-                <div class="controls-hint">
-                    🖱️ <b>[2D 모드] 좌클릭 노드 드래그</b>: 위치 이동 &nbsp;|&nbsp; <b>우클릭/빈공간 드래그</b>: 맵 Pan 이동 &nbsp;|&nbsp; <b>휠</b>: Zoom<br>
-                    🌐 <b>[Cesium 3D 모드] 좌클릭 드래그</b>: 지구본 회전 &nbsp;|&nbsp; <b>우클릭 드래그</b>: 지도 이동 &nbsp;|&nbsp; <b>휠</b>: 고도/확대 조절
-                </div>
+                <div class="controls-hint">🌐 <b>Cesium 지도</b>: 빈 지도에서 좌클릭 드래그로 이동 · 노드는 직접 드래그해 배치 · 휠 또는 MAP SCALE로 확대/축소</div>
             </main>
         </div>
     </div>
 
     <!-- Scripts -->
-    <div style="position: fixed; bottom: 4px; right: 8px; z-index: 20; color: #91a0af; background: rgba(4, 8, 14, .78); padding: 3px 6px; font: 10px sans-serif; pointer-events: none;"><span id="terrain-data-status">Loading map data…</span> · 3D by CesiumJS · © OpenStreetMap contributors · Copernicus DEM via Open-Meteo</div>
-    <script src="/static/client/terrain.js"></script>
+    <div style="position: fixed; bottom: 4px; right: 8px; z-index: 20; color: #91a0af; background: rgba(4, 8, 14, .78); padding: 3px 6px; font: 10px sans-serif; pointer-events: none;"><span id="terrain-data-status">Cesium 3D map idle</span> · Cesium World Terrain · Cesium OSM Buildings · © OpenStreetMap contributors</div>
     <script src="/static/client/wireless.js"></script>
     <script src="/static/client/app.js"></script>
 </body>

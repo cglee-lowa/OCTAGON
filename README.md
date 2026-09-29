@@ -26,7 +26,7 @@
 ```
 ┌────────────────────────────────────────────────────────┐
 │              Octagon Web App (Client)                  │
-│  - HTML5 Canvas 2D Tactical C2 UI                      │
+│  - CesiumJS World Terrain + OSM 3D Buildings UI                      │
 │  - 8-Node Drag & Drop with Instant Velocity Tracking   │
 │  - Interactive Pan & Smooth Cursor-Centered Zoom       │
 │  - Dynamic Map Scales: 10m, 20m, 50m, 100m, 200m, 500m │
@@ -60,65 +60,62 @@
 ## ✨ 주요 기능 (Key Features)
 
 ### 1. Octagon Web App (에뮬레이터 클라이언트)
-- **문정역 실지형 3D 전술 지형 엔진 (`terrain.js`):**
-  - **문정역 중심 6km × 6km CesiumJS 3D 배경:** CesiumJS 지구본/카메라 위에 OpenStreetMap 타일, 건물 외곽선·도로·수계, Open-Meteo에서 제공하는 Copernicus DEM 고도 지형을 표시합니다. 실제 건물 높이 태그가 없으면 추정 높이로 표시하며, 외부 데이터 연결이 불가하면 내장 Canvas 지형으로 대체합니다.
-  - **랜드마크 차폐 구조물 반영:** 문정 테라타워 1·2차(68m), 엠스테이트(62m), 서울동부지방법원(52m), 서울동부지방검찰청(50m), H-비즈니스파크(60m), 문정 SK V1(65m), 문정 컬처밸리 선큰 보행통로(-4.5m).
-  - **수변 생태계 및 식생대:** 탄천 수변 수림대, 문정근린공원 수목림 Foliage Clutter 감쇄 반영.
-  - **2D 전술맵 / 3D 입체뷰 듀얼 뷰포트:** 상단 토글로 2D 전술 지도와 3D 입체 와이어프레임 & 빌딩 폴리곤 뷰 전환 지원. 3D 모드에서 마우스 드래그를 통한 Pitch/Yaw 궤도 회전 지원.
-  - **지형과 노드의 명확한 육안 구분:** 고휘도 네온 컬러 팔레트, 펄스 애니메이션, 노드별 백드롭 텍스트 라벨(명칭 및 고도 표시), 3D 모드 지면 투영 점선 기둥 및 그림자 렌더링.
-  - **3D Ray-Terrain LOS / NLOS 판정:** 건물 및 지형에 의한 전파 가시거리(LOS) 판정, 칼날 회절(Knife-Edge Diffraction, ITU-R P.526) 손실(최대 45dB) 및 수목 손실 연산, 차폐 발생 지점 3D 마커 표시.
-- **자유로운 8개 노드 제어:** 마우스 좌클릭 드래그로 노드 이동. 드래그 변위/시간($\Delta t$)을 측정하여 물리 속도 벡터($v_x, v_y$)를 실시간 산출, 도플러 편이에 즉각 반영.
+- **Cesium 기반 전 세계 3D 지도:** CesiumJS globe에 Cesium ion World Terrain과 OSM Buildings 3D Tiles를 온라인 스트리밍합니다. 한국 주요 도시와 명소로 이동하고, 건물 높이별 3D Tiles 스타일과 전술 노드·무선 링크를 겹쳐 볼 수 있습니다. ion 토큰은 브라우저에서 입력하며 로컬에 저장합니다.
+- **RF 전파·차폐 계산 엔진 (`app.js` + `wireless.js`):**
+  - Cesium 지형·건물 프로파일과 지표면 위 1.5 m 전술 무전기 안테나 높이로 LOS와 회절을 계산합니다.
+  - 무선 채널 모델은 3차원 노드 위치, 지형·건물 회절, 3차원 속도 투영을 사용합니다.
+- **자유로운 8개 노드 제어:** Cesium 지표면에 놓인 노드를 드래그합니다. 지도에는 각 노드의 가장 가까운 이웃으로 가는 연결선만 그리고 선 중앙에 노드 간 3D 거리(m)를 표시합니다. 지면 위 1.5m 안테나 높이를 유지하며 동·북·상 속도($v_x,v_y,v_z$)를 산출합니다.
 - **지도형 Pan & Zoom:**
-  - 마우스 빈 공간 좌클릭/우클릭 드래그로 맵 Pan 이동.
-  - 마우스 휠 스크롤로 커서 위치 기준 확대/축소.
+  - 빈 지도를 좌클릭 드래그하면 회전 없이 좌우/상하로 이동합니다. 노드를 잡고 있는 동안에는 지도 입력이 잠깁니다.
+  - 휠과 확대/축소 버튼으로 Cesium 카메라를 조작합니다.
   - 원점 복귀(`⌖ RESET VIEW`) 지원.
-- **동적 축척 전환:** `10m`, `20m`, `50m`, `100m`, `200m`, `500m` 버튼 선택 시 화면의 실제 거리 격자 눈금 및 우측 하단 스케일 바(Scale Bar)가 실시간 동적 갱신.
-- **전술 포메이션 프리셋:** `문정역 전술배치`, `Octagon Ring`, `2x4 Tactical Grid`, `Convoy Line`, `2-Cluster Mesh` 원클릭 대형 배치.
-- **자동 기동 (Auto Patrol):** 드래그하지 않고도 지속적인 도플러 효과 및 링크 동적 변화를 시뮬레이션할 수 있는 자동 순찰 모드.
+- **동적 축척 전환:** `10m`, `20m`, `50m`, `100m`, `200m`, `500m` 버튼 선택 시 Cesium 지도 고도가 바뀌어 실제 화면 축척을 조정합니다.
+- **전술 포메이션 프리셋:** `분산`(현재 화면 안 무작위 배치), `Octagon Ring`, `2x4 Tactical Grid`, `Convoy Line`, `2-Cluster Mesh` 패턴을 현재 보이는 지도 중심에 배치합니다.
+- **자동 기동 (Auto Patrol):** 각 노드가 독립적으로 0.2–1.5 m/s의 무작위 보행 속도와 방향으로 이동합니다. 축척에 따라 현재 지도 중심 주변의 이동 영역을 유지하고, 방향을 주기적으로 다시 무작위 선택합니다.
 - **RF 환경 설정:** 반송파 주파수($f_c$, 1.0~6.0GHz), 경로손실지수($n$, 2.0~4.0), 섀도잉 표준편차($\sigma$, 0~8dB), 송신 전력($P_{tx}$, 10~30dBm), 전송 주기(10Hz~50Hz).
 
 ### 2. Octaman Server & 대시보드 (수신 및 시각화)
 - **Rich 터미널 콘솔 라이브 테이블:** 서버 터미널 자체에서 8x8 Path Loss(dB) 매트릭스(차폐 NLOS 링크는 `*` 표기)와 초당 수신 FPS, 패킷 카운트 실시간 시각화.
 - **웹 대시보드 (`/dashboard`):**
   - **8x8 인터랙티브 매트릭스 뷰:** `PATH LOSS`, `DELAY`, `FADING`, `MULTIPATH`, `DOPPLER`, `RSSI` 별 실시간 수치 및 컬러 히트맵 렌더링.
-  - **링크 인스펙터:** 테이블의 $(i, j)$ 셀 클릭 시, 해당 링크의 2D/3D 거리, LOS/NLOS 여부, 차폐 회절 손실, 신호 세기, 지연시간, 도플러, 3-Ray 다중경로 탭 정보 상세 조회.
-  - **노드 텔레메트리:** 8개 노드의 실시간 $X, Y$ 좌표(m), 고도 $H$(m) 및 속도(m/s) 모니터링 카드.
+  - **링크 인스펙터:** 테이블의 $(i, j)$ 셀 클릭 시, 해당 링크의 3D 거리, LOS/NLOS 여부, 차폐 회절 손실, 신호 세기, 지연시간, 도플러, 3-Ray 다중경로 탭 정보 상세 조회.
+  - **노드 텔레메트리:** 8개 노드의 ENU 좌표, WGS84 위도·경도·고도 및 3축 속도 모니터링 카드.
 
 ---
 
 ## 📡 무선 채널 모델링 수식 (Wireless Channel Modeling)
 
-1. **노드 간 2D 거리 ($d$):**
-   $$d_{ij} = \sqrt{(x_i - x_j)^2 + (y_i - y_j)^2} \quad (\text{m})$$
+모든 링크는 로컬 동-북-상(ENU) 좌표의 수평 위치와 Cesium WGS84 표고를 함께 사용합니다. 안테나는 일반적인 man-pack 전술 무전기를 조끼/어깨에 장착한 높이를 대표값으로 두어 **지표면 위 1.5 m**에 배치합니다. 실제 장비와 설치 위치에 따라 달라지는 값이므로 `WirelessEngine({ antennaHeightM })`로 조정할 수 있습니다.
 
-2. **Log-distance Path Loss 모델 ($PL$):**
-   $$PL(d) = 20 \log_{10}\left(\frac{4\pi d_0 f_c}{c}\right) + 10 \cdot n \cdot \log_{10}\left(\frac{\max(d, d_0)}{d_0}\right) \quad (\text{dB})$$
-   - 기준 거리: $d_0 = 1.0\text{ m}$
-   - 반송파 주파수 기본값: $f_c = 2.4\text{ GHz}$ ($\lambda \approx 0.125\text{ m}$)
-   - 경로 손실 지수: $n = 2.8$ (도심/전술 MANET 환경 기본값)
+1. **노드 간 3차원 거리:**
+   $$d_{2D}=\sqrt{(x_j-x_i)^2+(y_j-y_i)^2},\qquad d_{3D}=\sqrt{d_{2D}^2+(z_j-z_i)^2}$$
+   여기서 $z_i,z_j$는 지형 표고에 안테나 높이를 더한 WGS84 타원체 기준 고도입니다. Cesium 지형 표고가 준비되지 않은 동안은 타원체 표고 0 m를 임시 기준으로 사용합니다.
 
-3. **페이딩 (Fading: Shadowing + Fast Fading):**
-   - **Log-normal Shadowing:** Gauss-Markov 시간 상관 프로세스를 적용하여 시간에 따라 연속적으로 변동하는 대수정규 분포 모델 ($X_\sigma \sim \mathcal{N}(0, \sigma^2)$, $\sigma = 3.0\text{ dB}$).
-   - **Fast Fading:** Rayleigh/Rician 분포 기반 다중파 합성 신호 세기 변동 ($\pm 3\text{ dB}$).
-   - **수신 신호 강도 (RSSI):**
-     $$\text{RSSI} = P_{tx} + G_{tx} + G_{rx} - PL(d) - \text{Fading} \quad (\text{dBm})$$
+2. **경로손실 및 지형·건물 회절:**
+   $$PL=20\log_{10}\left(\frac{4\pi d_0}{\lambda}\right)+10n\log_{10}\left(\frac{\max(d_{3D},d_0)}{d_0}\right)+L_{\mathrm{diff}}$$
+   - $d_0=1$ m, $f_c=2.4$ GHz, $\lambda=c/f_c$, $n=2.8$ 기본값.
+   - Cesium World Terrain 표고 프로파일과 OSM Buildings 3D Tiles 표면고도를 링크 경로에서 샘플링합니다. 경로 간격은 대략 10 m, 최대 64구간입니다.
+   - 직접선 차폐를 검사하고, 60% 제1 프레넬 구역 침범을 등가 칼날 높이로 사용해 ITU-R P.526 근사 회절손실을 계산하며 0–45 dB로 제한합니다. 3D 타일이 아직 로드되지 않은 구간은 지형 표고만 반영합니다.
+   - 현재 Cesium World Terrain/OSM Buildings 스트림에는 검증된 수관 높이 자료가 포함되지 않으므로 수목 손실은 임의 수치로 만들지 않고 0 dB로 둡니다.
 
-4. **전파 지연 (Propagation Delay $\tau$):**
-   $$\tau = \frac{d}{c} \quad (c = 299,792,458\text{ m/s} \approx 3 \times 10^8\text{ m/s})$$
-   - 단위: 나노초 ($\text{ns}$), $1\text{m} \approx 3.3356\text{ ns}$
+3. **섀도잉과 빠른 페이딩:**
+   $$S_{k+1}=\alpha_S S_k+\sqrt{1-\alpha_S^2}W,\quad \alpha_S=e^{-\Delta s/d_{corr}}$$
+   $\Delta s$는 두 프레임 사이 노드의 최대 이동거리이며, 기본 공간 상관거리는 LOS 10 m / NLOS 13 m입니다. $W$의 표준편차는 LOS에서 설정값 $\sigma$ (기본 3 dB), NLOS에서 $1.7\sigma$입니다. 정지 노드는 shadowing 상태를 유지합니다.
+   빠른 페이딩은 복소 채널을 $h_{k+1}=\alpha_f h_k+\sqrt{1-\alpha_f^2}w$로 상관 갱신합니다. $\alpha_f=e^{-2\pi f_{D,max}\Delta t}$, $f_{D,max}=|v_{rel}|/\lambda$이며 속도는 연속된 무선 텔레메트리 좌표 차이로 산출합니다. 좌표가 바뀌지 않으면 속도와 도플러를 0으로 처리하고 채널 상태를 유지합니다. 진폭 분포는 LOS Rician $K=3$ dB, NLOS $K=-40$ dB (Rayleigh 근사)를 사용합니다. 이는 이동에 따른 시간 상관을 둔 경량 근사 모델입니다.
 
-5. **다중 경로 프로파일 (Multipath Profile - 3-Ray Tap):**
-   - RMS 지연 확산: $\sigma_\tau \approx 15 \cdot (1 + 0.45\log_{10}(1 + d/10)) \quad (\text{ns})$
-   - **Tap 1 (Direct LOS):** 지연 $0\text{ ns}$, 상대 전력 $0.0\text{ dB}$
-   - **Tap 2 (Ground Reflection):** 지연 $\tau_2 = \min(\tau \cdot 0.15 + 12\text{ns}, 120\text{ns})$, 상대 전력 $-5.2\text{ dB}$
-   - **Tap 3 (Clutter/Scatter):** 지연 $\tau_3 = \min(\tau \cdot 0.35 + 35\text{ns}, 300\text{ns})$, 상대 전력 $-13.8\text{ dB}$
+4. **수신전력과 링크 품질:**
+   $$P_r=P_t+G_t+G_r-PL-(S+F_{\mathrm{fast}})$$
+   기본 $P_t=23$ dBm, 양쪽 안테나 이득은 각각 2.15 dBi입니다. 링크 품질은 $P_r=-98$ dBm일 때 0%, $-58$ dBm일 때 100%가 되도록 선형 보간하고 범위를 제한합니다. 연결 판정 임계값은 $-98$ dBm입니다.
 
-6. **도플러 주파수 편이 (Doppler Shift $f_d$):**
-   $$\vec{v}_{\text{rel}} = \vec{v}_j - \vec{v}_i, \quad \hat{u}_{ij} = \frac{\vec{r}_j - \vec{r}_i}{d_{ij}}$$
-   $$v_r = \vec{v}_{\text{rel}} \cdot \hat{u}_{ij} \quad (\text{반경 상대 속도})$$
-   $$f_d = \frac{v_r}{\lambda} = \frac{v_r \cdot f_c}{c} \quad (\text{Hz})$$
+5. **전파 지연 및 다중경로:**
+   $$\tau_{LOS}=d_{3D}/c$$
+   첫 번째 탭을 기준 지연 0 ns로 두고, 탭 2는 지면 반사 이미지 기하 $d_g=\sqrt{d_{2D}^2+(h_i+h_j)^2}$로부터 $(d_g-d_{3D})/c$를 계산합니다. 탭 3은 샘플된 지형/건물 차폐점까지의 두 직선 경로와 직접 경로의 길이 차이로 초과 지연을 구합니다. 뚜렷한 차폐점이 없으면 3% (LOS) / 12% (NLOS) 경로 연장 경험 근사를 사용합니다. 탭 상대전력은 LOS에서 0/-6/-14.5 dB, NLOS에서 0/-3.5/-8.5 dB입니다. RMS 지연확산은 이 세 탭의 상대전력을 선형 단위로 환산한 가중 표준편차입니다.
 
----
+6. **3차원 도플러 편이:**
+   $$\hat{u}_{ij}=\frac{(x_j-x_i, y_j-y_i, z_j-z_i)}{d_{3D}},\quad v_r=(\vec v_j-\vec v_i)\cdot\hat{u}_{ij},\quad f_d=\frac{v_r f_c}{c}$$
+   수평/수직 상대속도를 모두 투영합니다. 정지 노드는 $v_z=0$이며 지형을 따라 노드를 드래그할 때 표고 변화로 수직 속도를 산출합니다.
+
+> 실제 구현은 Cesium 지형·건물 표면 프로파일을 최대 약 0.9초 간격으로 갱신하고, 새 표고 샘플이 준비되기 전까지 직전 프로파일을 사용합니다. 지형/건물 데이터나 Cesium ion 토큰이 없으면 3D 거리와 안테나 고도는 계산하지만 회절 손실은 관측된 프로파일이 없어 0 dB로 처리합니다.
 
 ## 📁 프로젝트 구조 (Project Structure)
 
@@ -130,9 +127,8 @@ OCTAGON/
 │   ├── client/               # Octagon Web App (에뮬레이터)
 │   │   ├── index.html        # 에뮬레이터 UI 레이아웃
 │   │   ├── style.css         # 전술 Cybernetic 다크 테마 스타일
-│   │   ├── terrain.js        # 문정역 실지형 높이맵, 3D 빌딩, LOS/회절 광선추적 엔진
 │   │   ├── wireless.js       # 5대 무선 채널 모델 연산 엔진
-│   │   └── app.js            # 2D/3D Canvas 렌더러, 노드 물리 엔진, 드래그/줌, WebSocket 전송
+│   │   └── app.js            # Cesium 단일 지도, 노드 이동·속도 산출, 좌표·채널 WebSocket 전송
 │   └── dashboard/            # Octaman Server 대시보드
 │       ├── index.html        # 모니터링 대시보드 UI
 │       ├── dashboard.css     # 8x8 매트릭스 및 인스펙터 스타일
@@ -185,7 +181,7 @@ python launch_dual_view.py
 ┌─────────────────────────────────┬─────────────────────────────────┐
 │     [왼쪽 화면] Octagon 클라이언트 │     [오른쪽 화면] Octaman 서버   │
 │                                 │                                 │
-│  - 8개 노드 Canvas 시각화       │  - 로컬 웹 대시보드 (/dashboard) │
+│  - Cesium 3D 지도와 8개 노드       │  - 로컬 웹 대시보드 (/dashboard) │
 │  - 노드 마우스 드래그 & 축척 전환 │    또는 터미널 콘솔 화면        │
 │  - 실시간 무선 채널 연산 및 송신 │  - 8x8 매트릭스 실시간 변화 모니터 │
 │    (30Hz 스트리밍)              │    (Path Loss, Delay, Doppler)  │

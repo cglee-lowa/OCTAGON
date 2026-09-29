@@ -20,6 +20,7 @@ class WirelessEngine {
         this.d0 = 1.0; // Reference distance in meters
         this.txPowerDbm = config.txPowerDbm || 23.0; // Tx Power in dBm (typical military/tactical radio: 200mW)
         this.antennaGainDbi = config.antennaGainDbi || 2.15; // Dipole antenna gain
+        this.antennaHeightM = config.antennaHeightM ?? 1.5; // General man-pack/vest-mounted tactical radio whip height above ground
         this.shadowingSigma = config.shadowingSigma || 3.0; // Shadowing standard deviation in dB
         
         // Internal state for smooth shadowing and fading simulation (temporal correlation)
@@ -41,35 +42,51 @@ class WirelessEngine {
     }
 
     /**
-     * Get or update smooth fading states with Gauss-Markov temporal correlation
+     * Update correlated shadowing and Doppler-driven small-scale fading.
+     * A stationary pair retains its channel state; motion drives spatial/time evolution.
      */
-    updateFadingState(pairKey, dt) {
-        if (!this.fadingStates.has(pairKey)) {
-            this.fadingStates.set(pairKey, {
-                shadow: this.randn() * this.shadowingSigma,
-                fastPhase: Math.random() * 2 * Math.PI,
-                fastAmp: 1.0
-            });
+    updateFadingState(pairKey, dt, isLOS = true, maxDopplerHz = 0, nodeA = null, nodeB = null) {
+        let state = this.fadingStates.get(pairKey);
+        if (!state) {
+            state = {
+                shadowZ: this.randn(),
+                fastI: this.randn() / Math.SQRT2,
+                fastQ: this.randn() / Math.SQRT2,
+                xA: nodeA?.x ?? 0, yA: nodeA?.y ?? 0, zA: nodeA?.z ?? 0,
+                xB: nodeB?.x ?? 0, yB: nodeB?.y ?? 0, zB: nodeB?.z ?? 0
+            };
+            this.fadingStates.set(pairKey, state);
         }
-        
-        const state = this.fadingStates.get(pairKey);
-        const decorrTime = 1.5; // Shadowing decorrelation time ~1.5s
-        const alpha = Math.exp(-Math.max(dt, 0.01) / decorrTime);
-        const w = Math.sqrt(1 - alpha * alpha) * this.randn() * this.shadowingSigma;
-        state.shadow = alpha * state.shadow + w;
 
-        // Small-scale dynamic fast fading (Rayleigh / Rician approximation)
-        state.fastPhase = (state.fastPhase + dt * (3.0 + Math.random() * 5.0)) % (2 * Math.PI);
-        const ricianK = 3.0; // K-factor in dB for direct LOS
+        const distanceA = nodeA ? Math.hypot(nodeA.x - state.xA, nodeA.y - state.yA, (nodeA.z || 0) - state.zA) : 0;
+        const distanceB = nodeB ? Math.hypot(nodeB.x - state.xB, nodeB.y - state.yB, (nodeB.z || 0) - state.zB) : 0;
+        const pairDisplacement = Math.max(distanceA, distanceB);
+        const shadowSigma = this.shadowingSigma * (isLOS ? 1 : 1.7);
+        const shadowCorrelationDistance = isLOS ? 10 : 13; // urban micro LOS/NLOS spatial correlation distance
+        const alphaShadow = Math.exp(-pairDisplacement / shadowCorrelationDistance);
+        if (pairDisplacement > 0) {
+            state.shadowZ = alphaShadow * state.shadowZ + Math.sqrt(Math.max(0, 1 - alphaShadow * alphaShadow)) * this.randn();
+        }
+        state.shadow = state.shadowZ * shadowSigma;
+
+        // First-order correlated complex Gaussian process; alpha=1 at zero Doppler.
+        const elapsed = Math.max(0, dt);
+        const alphaFast = Math.exp(-2 * Math.PI * Math.max(0, maxDopplerHz) * elapsed);
+        if (alphaFast < 1) {
+            const innovation = Math.sqrt(Math.max(0, 1 - alphaFast * alphaFast));
+            state.fastI = alphaFast * state.fastI + innovation * this.randn() / Math.SQRT2;
+            state.fastQ = alphaFast * state.fastQ + innovation * this.randn() / Math.SQRT2;
+        }
+
+        const ricianK = isLOS ? 3.0 : -40.0;
         const kLinear = Math.pow(10, ricianK / 10);
-        const s = Math.sqrt(kLinear / (kLinear + 1));
-        const diffRay = Math.sqrt(1 / (2 * (kLinear + 1)));
-        const rReal = s + diffRay * this.randn();
-        const rImag = diffRay * this.randn();
-        const envelope = Math.sqrt(rReal * rReal + rImag * rImag);
-        const fastFadingDb = 20 * Math.log10(Math.max(envelope, 0.05));
-        
-        state.fastFadingDb = fastFadingDb;
+        const specular = Math.sqrt(kLinear / (kLinear + 1));
+        const diffuse = Math.sqrt(1 / (kLinear + 1));
+        const envelope = Math.hypot(specular + diffuse * state.fastI, diffuse * state.fastQ);
+        state.fastFadingDb = 20 * Math.log10(Math.max(envelope, 0.05));
+
+        if (nodeA) { state.xA = nodeA.x; state.yA = nodeA.y; state.zA = nodeA.z || 0; }
+        if (nodeB) { state.xB = nodeB.x; state.yB = nodeB.y; state.zB = nodeB.z || 0; }
         return state;
     }
 
@@ -112,23 +129,25 @@ class WirelessEngine {
 
         const dx = nodeB.x - nodeA.x;
         const dy = nodeB.y - nodeA.y;
-        const dist2D = Math.max(0.1, Math.hypot(dx, dy));
+        const dist2D = Math.hypot(dx, dy);
+        const dz = (nodeB.z || 0) - (nodeA.z || 0);
+        const geometricDist3D = Math.max(0.1, Math.hypot(dist2D, dz));
 
         // 3D Terrain & Obstruction Analysis
         let isLOS = true;
-        let dist3D = dist2D;
+        let dist3D = geometricDist3D;
         let diffractionLossDb = 0.0;
         let foliageLossDb = 0.0;
         let totalTerrainLossDb = 0.0;
-        let elevA = 0.0;
-        let elevB = 0.0;
+        let elevA = (nodeA.z || 0) - this.antennaHeightM;
+        let elevB = (nodeB.z || 0) - this.antennaHeightM;
         let obstructionPoint = null;
         let obstructingBuilding = null;
 
         if (terrain && typeof terrain.analyzePath === 'function') {
-            const pathResult = terrain.analyzePath(nodeA, nodeB, 2.0, this.wavelength);
+            const pathResult = terrain.analyzePath(nodeA, nodeB, this.antennaHeightM, this.wavelength);
             isLOS = pathResult.isLOS;
-            dist3D = pathResult.dist3D || dist2D;
+            dist3D = Number.isFinite(pathResult.dist3D) ? pathResult.dist3D : geometricDist3D;
             diffractionLossDb = pathResult.diffractionLossDb;
             foliageLossDb = pathResult.foliageLossDb;
             totalTerrainLossDb = pathResult.totalTerrainLossDb;
@@ -150,7 +169,11 @@ class WirelessEngine {
 
         // 2. Fading (Shadowing + Fast Fading)
         const pairKey = nodeA.id < nodeB.id ? `${nodeA.id}-${nodeB.id}` : `${nodeB.id}-${nodeA.id}`;
-        const fadingState = this.updateFadingState(pairKey, dt);
+        const vxRel = (nodeB.vx || 0) - (nodeA.vx || 0);
+        const vyRel = (nodeB.vy || 0) - (nodeA.vy || 0);
+        const vzRel = (nodeB.vz || 0) - (nodeA.vz || 0);
+        const maxDopplerHz = Math.hypot(vxRel, vyRel, vzRel) / this.wavelength;
+        const fadingState = this.updateFadingState(pairKey, dt, isLOS, maxDopplerHz, nodeA, nodeB);
         const totalFading = fadingState.shadow + fadingState.fastFadingDb;
 
         // 3. Propagation Delay
@@ -159,24 +182,39 @@ class WirelessEngine {
 
         // 4. Multipath Profile (RMS Delay Spread + 3 Taps)
         // NLOS 시 다중경로 확산(Delay Spread) 급증
-        const baseSpreadNs = isLOS ? 16.0 : 42.0;
-        const rmsDelaySpreadNs = baseSpreadNs * (1.0 + 0.45 * Math.log10(1 + dist3D / 10.0));
-        
-        // 3-Ray Tap Model:
-        const tap2ExcessNs = Math.min(delayNs * 0.18 + (isLOS ? 14.0 : 35.0), 180.0);
-        const tap3ExcessNs = Math.min(delayNs * 0.40 + (isLOS ? 40.0 : 90.0), 380.0);
+        // Geometric ground-reflection and dominant-obstacle/scatter paths.
+        const antennaHeightA = Math.max(0.1, (nodeA.z || 0) - elevA);
+        const antennaHeightB = Math.max(0.1, (nodeB.z || 0) - elevB);
+        const groundReflectionDistance = Math.hypot(dist2D, antennaHeightA + antennaHeightB);
+        const tap2ExcessNs = Math.max(0, (groundReflectionDistance - dist3D) / this.c * 1e9);
+        let tap3ExcessNs;
+        if (obstructionPoint && Number.isFinite(obstructionPoint.terrainZ)) {
+            const d1 = Math.max(0, obstructionPoint.d1 || dist2D / 2);
+            const d2 = Math.max(0, obstructionPoint.d2 || dist2D / 2);
+            const obstacleTop = obstructionPoint.terrainZ;
+            const scatteredDistance = Math.hypot(d1, obstacleTop - (nodeA.z || 0)) + Math.hypot(d2, obstacleTop - (nodeB.z || 0));
+            tap3ExcessNs = Math.max(0, (scatteredDistance - dist3D) / this.c * 1e9);
+        } else {
+            const sideScatterDistance = Math.hypot(dist2D, dz) * (isLOS ? 1.03 : 1.12);
+            tap3ExcessNs = Math.max(0, (sideScatterDistance - dist3D) / this.c * 1e9);
+        }
+        const tap2PowerDb = isLOS ? -6.0 : -3.5;
+        const tap3PowerDb = isLOS ? -14.5 : -8.5;
         const multipath = [
             { tap: 1, delayNs: 0.0, powerRatioDb: 0.0 },
-            { tap: 2, delayNs: parseFloat(tap2ExcessNs.toFixed(1)), powerRatioDb: isLOS ? -6.0 : -3.5 },
-            { tap: 3, delayNs: parseFloat(tap3ExcessNs.toFixed(1)), powerRatioDb: isLOS ? -14.5 : -8.5 }
+            { tap: 2, delayNs: parseFloat(tap2ExcessNs.toFixed(2)), powerRatioDb: tap2PowerDb },
+            { tap: 3, delayNs: parseFloat(tap3ExcessNs.toFixed(2)), powerRatioDb: tap3PowerDb }
         ];
+        const tapPowers = multipath.map(tap => Math.pow(10, tap.powerRatioDb / 10));
+        const totalTapPower = tapPowers.reduce((sum, power) => sum + power, 0);
+        const meanTapDelay = multipath.reduce((sum, tap, index) => sum + tap.delayNs * tapPowers[index], 0) / totalTapPower;
+        const rmsDelaySpreadNs = Math.sqrt(multipath.reduce((sum, tap, index) => sum + tapPowers[index] * Math.pow(tap.delayNs - meanTapDelay, 2), 0) / totalTapPower);
 
         // 5. Doppler Shift (Hz)
-        const vxRel = (nodeB.vx || 0) - (nodeA.vx || 0);
-        const vyRel = (nodeB.vy || 0) - (nodeA.vy || 0);
-        const ux = dx / dist2D;
-        const uy = dy / dist2D;
-        const vRadial = vxRel * ux + vyRel * uy;
+        const ux = dx / geometricDist3D;
+        const uy = dy / geometricDist3D;
+        const uz = dz / geometricDist3D;
+        const vRadial = vxRel * ux + vyRel * uy + vzRel * uz;
         const dopplerHz = (vRadial * this.frequencyHz) / this.c;
 
         // 6. RSSI
@@ -222,17 +260,27 @@ class WirelessEngine {
      * Compute full 8x8 Link Matrix for an array of 8 nodes with optional terrain
      */
     computeMatrix(nodes, dt = 0.033, terrain = null) {
-        const matrix = [];
-        const n = nodes.length;
-
-        for (let i = 0; i < n; i++) {
-            const row = [];
-            for (let j = 0; j < n; j++) {
-                row.push(this.computeLink(nodes[i], nodes[j], dt, terrain));
+        const count = nodes.length;
+        const matrix = Array.from({ length: count }, () => Array(count));
+        for (let i = 0; i < count; i++) {
+            matrix[i][i] = this.computeLink(nodes[i], nodes[i], dt, terrain);
+            for (let j = i + 1; j < count; j++) {
+                const forward = this.computeLink(nodes[i], nodes[j], dt, terrain);
+                const obstructionPoint = forward.obstructionPoint
+                    ? { ...forward.obstructionPoint, d1: forward.obstructionPoint.d2, d2: forward.obstructionPoint.d1 }
+                    : null;
+                matrix[i][j] = forward;
+                matrix[j][i] = {
+                    ...forward,
+                    source: nodes[j].id,
+                    target: nodes[i].id,
+                    dopplerHz: -forward.dopplerHz,
+                    elevationA: forward.elevationB,
+                    elevationB: forward.elevationA,
+                    obstructionPoint
+                };
             }
-            matrix.push(row);
         }
-
         return matrix;
     }
 }

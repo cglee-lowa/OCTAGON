@@ -1,6 +1,6 @@
 /**
- * OCTAGON MANET Web App Main Controller & Canvas Renderer
- * Integrated with Munjeong Station Tactical 3D Terrain & RF Engine
+ * OCTAGON MANET CesiumJS Client and Wireless Channel Engine
+ * Integrated with Cesium 3D Terrain & RF Engine
  */
 
 // Node definition and high-visibility contrasting military color palette
@@ -16,54 +16,66 @@ const NODE_COLORS = [
 ];
 
 const NODE_NAMES = [
-    { code: 'Alpha', role: '문정역 거점본부 (GW)' },
-    { code: 'Bravo', role: '테라타워 1차 관측조' },
-    { code: 'Charlie', role: '엠스테이트 통신중계' },
-    { code: 'Delta', role: '송파대로 공중 UAV' },
-    { code: 'Echo', role: '서울동부지법 전방정찰' },
-    { code: 'Foxtrot', role: '동부지검 지하기동조' },
-    { code: 'Golf', role: '탄천 수변 UGV초계' },
-    { code: 'Hotel', role: '컬처밸리 광장 방호조' }
+    { code: 'Alpha', role: '분대 지휘 노드' },
+    { code: 'Bravo', role: '정찰 노드' },
+    { code: 'Charlie', role: '통신 중계 노드' },
+    { code: 'Delta', role: 'UAV 중계 노드' },
+    { code: 'Echo', role: '전방 관측 노드' },
+    { code: 'Foxtrot', role: '기동 노드' },
+    { code: 'Golf', role: '지원 노드' },
+    { code: 'Hotel', role: '지휘소 노드' }
 ];
+const RADIO_ANTENNA_HEIGHT_M = 1.5; // typical shoulder/vest-mounted man-pack whip above local ground
+
+const MAP_LOCATIONS = {
+    munjeong: { name: '서울 · 문정역', lat: 37.48593, lon: 127.12236, altitude: 10000 },
+    seoul: { name: '서울 · 시청', lat: 37.5665, lon: 126.9780, altitude: 14000 },
+    busan: { name: '부산 · 시청', lat: 35.1796, lon: 129.0756, altitude: 14000 },
+    incheon: { name: '인천 · 시청', lat: 37.4563, lon: 126.7052, altitude: 14000 },
+    daegu: { name: '대구 · 시청', lat: 35.8714, lon: 128.6014, altitude: 14000 },
+    daejeon: { name: '대전 · 시청', lat: 36.3504, lon: 127.3845, altitude: 14000 },
+    gwangju: { name: '광주 · 시청', lat: 35.1595, lon: 126.8526, altitude: 14000 },
+    ulsan: { name: '울산 · 시청', lat: 35.5384, lon: 129.3114, altitude: 14000 },
+    sejong: { name: '세종 · 정부청사', lat: 36.4800, lon: 127.2890, altitude: 14000 },
+    suwon: { name: '수원 · 화성행궁', lat: 37.2636, lon: 127.0286, altitude: 11000 },
+    jeju: { name: '제주 · 제주시청', lat: 33.4996, lon: 126.5312, altitude: 14000 },
+    gyeongbokgung: { name: '서울 · 경복궁', lat: 37.5796, lon: 126.9770, altitude: 6500 },
+    namsan: { name: '서울 · 남산서울타워', lat: 37.5512, lon: 126.9882, altitude: 8000 },
+    'lotte-world-tower': { name: '서울 · 롯데월드타워', lat: 37.5125, lon: 127.1025, altitude: 6500 },
+    songdo: { name: '인천 · 송도 센트럴파크', lat: 37.3930, lon: 126.6340, altitude: 7000 },
+    haeundae: { name: '부산 · 해운대', lat: 35.1587, lon: 129.1604, altitude: 7500 },
+    gyeongju: { name: '경주 · 불국사', lat: 35.7898, lon: 129.3320, altitude: 7000 },
+    jeonju: { name: '전주 · 한옥마을', lat: 35.8154, lon: 127.1530, altitude: 6500 },
+    seoraksan: { name: '설악산 · 국립공원', lat: 38.1190, lon: 128.4650, altitude: 18000 },
+    hallasan: { name: '제주 · 한라산', lat: 33.3617, lon: 126.5292, altitude: 18000 },
+    seongsan: { name: '제주 · 성산일출봉', lat: 33.4580, lon: 126.9420, altitude: 7500 },
+    dmz: { name: '파주 · 임진각', lat: 37.8880, lon: 126.7410, altitude: 9000 }
+};
 
 class OctagonApp {
     constructor() {
-        this.canvas = document.getElementById('viewport-canvas');
-        this.ctx = this.canvas.getContext('2d');
         this.container = document.getElementById('canvas-container');
-
-        // View Mode: '2d' or '3d'
-        this.viewMode = '2d';
-
-        // 2D Viewport Transform (Pan & Zoom)
         this.scaleMeters = 50;
-        this.pixelsPerMeter = 4.5;
-        this.panX = 0;
-        this.panY = 0;
 
-        // 3D Camera State
-        this.camera3D = {
-            pitch: 38 * Math.PI / 180,  // 경사각
-            yaw: -32 * Math.PI / 180,   // 방위각
-            zoom: 1.05,
-            cx: 20,                     // 주시점 X (문정역 중심)
-            cy: 0                       // 주시점 Y
-        };
-
-        // Tactical Terrain Engine (Munjeong station default)
-        this.terrain = new TacticalTerrain('munjeong');
-        this.terrainDataPromise = this.terrain.loadRegionalData().then(() => {
-            const status = document.getElementById('terrain-data-status');
-            if (!status) return;
-            status.textContent = this.terrain.mapLoadStatus === 'loaded'
-                ? `OSM buildings ${this.terrain.osmBuildingCount.toLocaleString()} · DEM loaded`
-                : this.terrain.mapLoadStatus === 'partial' ? 'Map data partially loaded' : 'Built-in terrain fallback';
-        });
+        this.mapLocation = MAP_LOCATIONS.munjeong;
+        this.ionLoadPromise = null;
+        this.ionLoadId = 0;
+        this.cesiumBuildingsTileset = null;
+        this.cesiumIonImageryLayer = null;
+        this.cesiumOsmImageryLayer = null;
+        this.cesiumTerrainProvider = null;
+        this.nodeGroundHeights = {};
+        this.lastValidNodePositions = new Map();
+        this.lastTelemetryPositions = new Map();
+        this.lastTelemetrySnapshotAt = null;
+        this.radioPathProfiles = new Map();
+        this.radioProfileRefreshAt = 0;
+        this.lastGroundSampleAt = 0;
+        this.radioProfilePromise = null;
+        this.cesiumRadioEnvironment = { analyzePath: (a, b, h, wavelength) => this.analyzeCesiumRadioPath(a, b, h, wavelength) };
         this.cesiumViewer = null;
         this.cesiumDataSource = null;
         this.isCesiumVisible = false;
-        this.showContours = true;
-        this.showBuildings = true;
 
         // Simulation Nodes (8 MANET nodes)
         this.nodes = [];
@@ -80,6 +92,7 @@ class OctagonApp {
 
         // Current computed matrix
         this.latestMatrix = [];
+        this.nearestNodeLinkKeys = new Set();
 
         // Interaction State
         this.isDraggingNode = false;
@@ -108,10 +121,11 @@ class OctagonApp {
 
         // Setup
         this.setupEventListeners();
-        this.resizeCanvas();
-        this.applyPreset('munjeong');
+        this.applyPreset('scatter');
         this.initWebSocket();
         this.restartTxLoop();
+        this.activateCesiumView();
+        document.getElementById('hud-view-val').textContent = 'Cesium 3D 지도';
 
         // Start render loop
         requestAnimationFrame((t) => this.renderLoop(t));
@@ -127,9 +141,10 @@ class OctagonApp {
                 color: NODE_COLORS[i],
                 x: 0,
                 y: 0,
-                z: 24, // Elevation in meters
+                z: RADIO_ANTENNA_HEIGHT_M, // antenna altitude until terrain sampling completes
                 vx: 0,
                 vy: 0,
+                vz: 0,
                 radiusPx: 17,
                 pulsePhase: Math.random() * Math.PI * 2
             });
@@ -137,183 +152,111 @@ class OctagonApp {
     }
 
     applyPreset(presetName) {
-        if (presetName === 'munjeong') {
-            // 문정역 일대 실제 지형 및 건물 주변 전술 배치
-            // N1: 문정역 역사 앞 지휘소
-            this.nodes[0].x = -15; this.nodes[0].y = -10;
-            // N2: 테라타워 1차 전면 관측지점
-            this.nodes[1].x = 30; this.nodes[1].y = 90;
-            // N3: 엠스테이트 남측 중계기점
-            this.nodes[2].x = 35; this.nodes[2].y = -85;
-            // N4: 송파대로 상공/대로변 UAV 릴레이 (고도 높음)
-            this.nodes[3].x = -15; this.nodes[3].y = 110;
-            // N5: 서울동부지방법원 청사 광장 정찰
-            this.nodes[4].x = 150; this.nodes[4].y = 80;
-            // N6: 서울동부지검 후면 통신조
-            this.nodes[5].x = 160; this.nodes[5].y = -80;
-            // N7: 탄천 수변공원 서측 초계 UGV
-            this.nodes[6].x = -175; this.nodes[6].y = 10;
-            // N8: 문정 컬처밸리 선큰 보행광장
-            this.nodes[7].x = 80; this.nodes[7].y = 5;
-
-            for (let i = 0; i < 8; i++) {
-                this.nodes[i].vx = 0;
-                this.nodes[i].vy = 0;
-                this.nodes[i].z = this.terrain.getElevation(this.nodes[i].x, this.nodes[i].y) + 2.0;
+        this.rebaseNodesToCurrentMapCenter();
+        // The chosen map scale describes the visible local area. Keep every layout
+        // proportional to it so formations remain legible at every zoom level.
+        const radius = this.scaleMeters * 0.42;
+        const positions = [];
+        if (presetName === 'scatter') {
+            const maxRadius = this.scaleMeters * 0.38;
+            const minSpacing = this.scaleMeters * 0.18;
+            for (let i = 0; i < this.nodes.length; i++) {
+                let candidate = null;
+                for (let attempt = 0; attempt < 1200; attempt++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const distance = maxRadius * Math.sqrt(Math.random());
+                    const point = { x: Math.cos(angle) * distance, y: Math.sin(angle) * distance };
+                    if (positions.every(other => Math.hypot(point.x - other.x, point.y - other.y) >= minSpacing)) {
+                        candidate = point;
+                        break;
+                    }
+                }
+                // Guaranteed fallback for unusually small scale or a dense viewport.
+                if (!candidate) {
+                    const angle = i * 2 * Math.PI / this.nodes.length - Math.PI / 2;
+                    candidate = { x: maxRadius * Math.cos(angle), y: maxRadius * Math.sin(angle) };
+                }
+                positions.push(candidate);
             }
         } else {
-            const radius = this.scaleMeters * 0.8;
-            switch (presetName) {
-                case 'octagon':
-                    for (let i = 0; i < 8; i++) {
-                        const angle = (i * 2 * Math.PI) / 8 - Math.PI / 2;
-                        this.nodes[i].x = Math.round(radius * Math.cos(angle) * 10) / 10;
-                        this.nodes[i].y = Math.round(radius * Math.sin(angle) * 10) / 10;
-                        this.nodes[i].vx = 0;
-                        this.nodes[i].vy = 0;
-                        this.nodes[i].z = this.terrain.getElevation(this.nodes[i].x, this.nodes[i].y) + 2.0;
-                    }
-                    break;
-                case 'grid':
-                    const dx = radius * 0.6;
-                    const dy = radius * 0.6;
-                    for (let i = 0; i < 8; i++) {
-                        const row = Math.floor(i / 4);
-                        const col = i % 4;
-                        this.nodes[i].x = (col - 1.5) * dx;
-                        this.nodes[i].y = (row - 0.5) * dy;
-                        this.nodes[i].vx = 0;
-                        this.nodes[i].vy = 0;
-                        this.nodes[i].z = this.terrain.getElevation(this.nodes[i].x, this.nodes[i].y) + 2.0;
-                    }
-                    break;
-                case 'line':
-                    const step = (radius * 2.2) / 7;
-                    for (let i = 0; i < 8; i++) {
-                        this.nodes[i].x = (i - 3.5) * step;
-                        this.nodes[i].y = 0;
-                        this.nodes[i].vx = 0;
-                        this.nodes[i].vy = 0;
-                        this.nodes[i].z = this.terrain.getElevation(this.nodes[i].x, this.nodes[i].y) + 2.0;
-                    }
-                    break;
-                case 'cluster':
-                    const c1 = [-radius * 0.6, 0];
-                    const c2 = [radius * 0.6, 0];
-                    for (let i = 0; i < 4; i++) {
-                        const a = (i * 2 * Math.PI) / 4;
-                        this.nodes[i].x = c1[0] + radius * 0.3 * Math.cos(a);
-                        this.nodes[i].y = c1[1] + radius * 0.3 * Math.sin(a);
-                        this.nodes[i].vx = 0;
-                        this.nodes[i].vy = 0;
-                        this.nodes[i].z = this.terrain.getElevation(this.nodes[i].x, this.nodes[i].y) + 2.0;
-                    }
-                    for (let i = 4; i < 8; i++) {
-                        const a = ((i - 4) * 2 * Math.PI) / 4;
-                        this.nodes[i].x = c2[0] + radius * 0.3 * Math.cos(a);
-                        this.nodes[i].y = c2[1] + radius * 0.3 * Math.sin(a);
-                        this.nodes[i].vx = 0;
-                        this.nodes[i].vy = 0;
-                        this.nodes[i].z = this.terrain.getElevation(this.nodes[i].x, this.nodes[i].y) + 2.0;
-                    }
-                    break;
+            for (let i = 0; i < this.nodes.length; i++) {
+                let x = 0, y = 0;
+                if (presetName === 'octagon') {
+                    const angle = i * 2 * Math.PI / 8 - Math.PI / 2;
+                    x = radius * Math.cos(angle);
+                    y = radius * Math.sin(angle);
+                } else if (presetName === 'grid') {
+                    x = ((i % 4) - 1.5) * radius * 0.58;
+                    y = (Math.floor(i / 4) - 0.5) * radius * 0.9;
+                } else if (presetName === 'line') {
+                    x = (i - 3.5) * (radius * 2 / 7);
+                } else if (presetName === 'cluster') {
+                    const clusterCenter = i < 4 ? -radius * 0.62 : radius * 0.62;
+                    const angle = (i % 4) * Math.PI / 2;
+                    x = clusterCenter + radius * 0.22 * Math.cos(angle);
+                    y = radius * 0.22 * Math.sin(angle);
+                }
+                positions.push({ x, y });
             }
         }
+        this.nodes.forEach((node, i) => {
+            node.x = Math.round(positions[i].x * 10) / 10;
+            node.y = Math.round(positions[i].y * 10) / 10;
+            node.vx = 0;
+            node.vy = 0;
+            node.vz = 0;
+            node.z = (this.nodeGroundHeights[node.id] ?? 0) + RADIO_ANTENNA_HEIGHT_M;
+        });
+        // A formation change is a relocation, not physical movement; use it as a new
+        // telemetry baseline so it cannot create a one-frame Doppler/RSSI spike.
+        this.lastTelemetryPositions.clear();
+        this.lastTelemetrySnapshotAt = null;
+        if (this.cesiumTerrainProvider) this.sampleTacticalNodeHeights(this.cesiumTerrainProvider);
         this.updateTelemetryCard();
     }
 
-    worldToScreen(wx, wy) {
-        const cx = this.canvas.width / 2 + this.panX;
-        const cy = this.canvas.height / 2 + this.panY;
-        return {
-            x: cx + wx * this.pixelsPerMeter,
-            y: cy - wy * this.pixelsPerMeter
+    rebaseNodesToCurrentMapCenter() {
+        if (!this.cesiumViewer) return;
+        const C = window.Cesium;
+        const scene = this.cesiumViewer.scene;
+        const center = new C.Cartesian2(scene.canvas.clientWidth / 2, scene.canvas.clientHeight / 2);
+        const ray = this.cesiumViewer.camera.getPickRay(center);
+        const point = ray && scene.globe.pick(ray, scene);
+        const cartographic = point ? C.Cartographic.fromCartesian(point) : this.cesiumViewer.camera.pickEllipsoid(center, scene.globe.ellipsoid);
+        if (!cartographic) return;
+        this.mapLocation = {
+            name: '현재 지도 중심',
+            lat: C.Math.toDegrees(cartographic.latitude),
+            lon: C.Math.toDegrees(cartographic.longitude),
+            altitude: this.cesiumViewer.camera.positionCartographic.height
         };
-    }
-
-    screenToWorld(sx, sy) {
-        const cx = this.canvas.width / 2 + this.panX;
-        const cy = this.canvas.height / 2 + this.panY;
-        return {
-            x: (sx - cx) / this.pixelsPerMeter,
-            y: -(sy - cy) / this.pixelsPerMeter
-        };
+        this.nodeGroundHeights = {};
+        this.radioPathProfiles.clear();
+        const terrainLabel = document.getElementById('hud-terrain-val');
+        if (terrainLabel) terrainLabel.textContent = `지도 중심 ${this.mapLocation.lat.toFixed(5)}, ${this.mapLocation.lon.toFixed(5)}`;
     }
 
     setupEventListeners() {
         window.addEventListener('resize', () => this.resizeCanvas());
 
-        // View Mode 2D / 3D Toggle
-        const btn2D = document.getElementById('btn-view-2d');
-        const btn3D = document.getElementById('btn-view-3d');
-        btn2D.addEventListener('click', () => {
-            this.viewMode = '2d';
-            this.isCesiumVisible = false;
-            document.getElementById('cesium-container').style.display = 'none';
-            this.canvas.style.display = 'block';
-            btn2D.classList.add('active');
-            btn2D.style.background = 'var(--accent-cyan)';
-            btn2D.style.color = '#000';
-            btn3D.classList.remove('active');
-            btn3D.style.background = 'transparent';
-            btn3D.style.color = 'var(--text-secondary)';
-            document.getElementById('hud-view-val').textContent = '2D 전술맵';
+        document.getElementById('select-map-location').addEventListener('change', (event) => {
+            this.setMapLocation(event.target.value);
         });
-
-        btn3D.addEventListener('click', () => {
-            this.viewMode = '3d';
-            this.activateCesiumView();
-            btn3D.classList.add('active');
-            btn3D.style.background = 'var(--accent-cyan)';
-            btn3D.style.color = '#000';
-            btn2D.classList.remove('active');
-            btn2D.style.background = 'transparent';
-            btn2D.style.color = 'var(--text-secondary)';
-            document.getElementById('hud-view-val').textContent = '3D 입체뷰';
-        });
-
-        // Terrain Preset Selector
-        const selectPreset = document.getElementById('select-terrain-preset');
-        selectPreset.addEventListener('change', (e) => {
-            this.terrain.loadPreset(e.target.value);
-            if (e.target.value !== 'munjeong') {
-                this.isCesiumVisible = false;
-                document.getElementById('cesium-container').style.display = 'none';
-                this.canvas.style.display = 'block';
-            } else if (this.viewMode === '3d') {
-                this.activateCesiumView();
+        const ionTokenInput = document.getElementById('cesium-ion-token');
+        try { ionTokenInput.value = localStorage.getItem('octagonCesiumIonToken') || ''; } catch (error) { /* storage can be disabled */ }
+        document.getElementById('btn-save-ion-token').addEventListener('click', () => {
+            const token = ionTokenInput.value.trim();
+            try {
+                if (token) localStorage.setItem('octagonCesiumIonToken', token);
+                else localStorage.removeItem('octagonCesiumIonToken');
+            } catch (error) {
+                this.setCesiumStatus('Browser storage unavailable');
+                return;
             }
-            for (const n of this.nodes) {
-                n.z = this.terrain.getElevation(n.x, n.y) + 2.0;
-            }
-            const labelMap = {
-                'munjeong': '문정역 실지형',
-                'ridge_valley': '산악 협곡 고지',
-                'flat': '평지'
-            };
-            document.getElementById('hud-terrain-val').textContent = labelMap[e.target.value] || e.target.value;
-            this.updateTelemetryCard();
+            if (window.Cesium) window.Cesium.Ion.defaultAccessToken = token || window.Cesium.Ion.defaultAccessToken;
+            if (this.cesiumViewer) this.connectCesiumIon();
+            else this.activateCesiumView();
         });
-
-        // Contours and Buildings toggle
-        const btnContours = document.getElementById('btn-toggle-contours');
-        btnContours.addEventListener('click', () => {
-            this.showContours = !this.showContours;
-            btnContours.querySelector('span').textContent = this.showContours ? '등고선 ON' : '등고선 OFF';
-        });
-
-        const btnBuildings = document.getElementById('btn-toggle-buildings');
-        btnBuildings.addEventListener('click', () => {
-            this.showBuildings = !this.showBuildings;
-            btnBuildings.querySelector('span').textContent = this.showBuildings ? '건물 차폐 ON' : '건물 차폐 OFF';
-        });
-
-        // Mouse Drag & Pan & Zoom
-        this.canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
-        window.addEventListener('mousemove', (e) => this.onMouseMove(e));
-        window.addEventListener('mouseup', (e) => this.onMouseUp(e));
-        this.canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
-        this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
         // Scale Buttons
         document.querySelectorAll('.scale-btn').forEach(btn => {
@@ -326,7 +269,7 @@ class OctagonApp {
         });
 
         // Formation Presets
-        document.getElementById('preset-munjeong').addEventListener('click', () => this.applyPreset('munjeong'));
+        document.getElementById('preset-scatter').addEventListener('click', () => this.applyPreset('scatter'));
         document.getElementById('preset-octagon').addEventListener('click', () => this.applyPreset('octagon'));
         document.getElementById('preset-grid').addEventListener('click', () => this.applyPreset('grid'));
         document.getElementById('preset-line').addEventListener('click', () => this.applyPreset('line'));
@@ -344,6 +287,11 @@ class OctagonApp {
         const btnPatrol = document.getElementById('btn-toggle-patrol');
         btnPatrol.addEventListener('click', () => {
             this.isPatrolling = !this.isPatrolling;
+            if (this.isPatrolling) {
+                const now = performance.now();
+                this.nodes.forEach(node => { node.patrolChangeAt = now; });
+            }
+            if (!this.isPatrolling) this.nodes.forEach(node => { node.vx = 0; node.vy = 0; node.vz = 0; });
             btnPatrol.classList.toggle('active', this.isPatrolling);
             btnPatrol.querySelector('span').textContent = this.isPatrolling ? '⏸ STOP PATROL' : '▶ AUTO PATROL';
         });
@@ -384,83 +332,50 @@ class OctagonApp {
     setScale(meters) {
         this.scaleMeters = meters;
         document.getElementById('current-scale-label').textContent = `${meters}m`;
-        const targetGridPx = 150;
-        this.pixelsPerMeter = targetGridPx / meters;
+        if (this.cesiumViewer) {
+            const camera = this.cesiumViewer.camera;
+            const currentAltitude = camera.positionCartographic.height;
+            const targetAltitude = Math.min(Math.max(meters / 1.15, 5), 10000);
+            if (Math.abs(currentAltitude - targetAltitude) > 2) {
+                const verticalTravel = Math.sin(1.05);
+                if (currentAltitude > targetAltitude) camera.zoomIn((currentAltitude - targetAltitude) / verticalTravel);
+                else camera.zoomOut((targetAltitude - currentAltitude) / verticalTravel);
+            }
+        }
         this.updateScaleBar();
         this.updateHUD();
     }
 
     resetView() {
-        this.panX = 0;
-        this.panY = 0;
-        this.camera3D.pitch = 38 * Math.PI / 180;
-        this.camera3D.yaw = -32 * Math.PI / 180;
-        this.camera3D.zoom = 1.05;
-        this.camera3D.cx = 20;
-        this.camera3D.cy = 0;
         if (this.cesiumViewer) this.flyCesiumHome();
-        this.setScale(this.scaleMeters);
     }
 
     zoomAtCenter(factor) {
-        if (this.viewMode === '3d') {
-            if (this.cesiumViewer) {
-                if (factor > 1) this.cesiumViewer.camera.zoomIn(1500 * (factor / 1.2));
-                else this.cesiumViewer.camera.zoomOut(1500 * ((1 / factor) / 1.2));
-                return;
-            }
-            this.camera3D.zoom = Math.min(Math.max(this.camera3D.zoom * factor, 0.4), 3.0);
-        } else {
-            const cx = this.canvas.width / 2;
-            const cy = this.canvas.height / 2;
-            this.zoomAt(cx, cy, factor);
-        }
-    }
-
-    zoomAt(screenX, screenY, factor) {
-        const oldPpm = this.pixelsPerMeter;
-        const newPpm = Math.min(Math.max(oldPpm * factor, 0.2), 50.0);
-        if (oldPpm === newPpm) return;
-
-        const worldPos = this.screenToWorld(screenX, screenY);
-        this.pixelsPerMeter = newPpm;
-        const newScreenPos = this.worldToScreen(worldPos.x, worldPos.y);
-
-        this.panX += (screenX - newScreenPos.x);
-        this.panY += (screenY - newScreenPos.y);
-
-        this.updateScaleBar();
-        this.updateHUD();
+        const nextScale = Math.min(Math.max(this.scaleMeters / factor, 10), 500);
+        const scales = [10, 20, 50, 100, 200, 500];
+        const nearest = scales.reduce((best, value) => Math.abs(value - nextScale) < Math.abs(best - nextScale) ? value : best, scales[0]);
+        this.setScale(nearest);
+        document.querySelectorAll('.scale-btn').forEach(button => button.classList.toggle('active', Number(button.dataset.scale) === nearest));
     }
 
     resizeCanvas() {
-        const rect = this.container.getBoundingClientRect();
-        this.canvas.width = rect.width;
-        this.canvas.height = rect.height;
         if (this.cesiumViewer) this.cesiumViewer.resize();
         this.updateScaleBar();
     }
 
     async activateCesiumView() {
         const container = document.getElementById('cesium-container');
-        if (this.terrain.preset !== 'munjeong') {
-            this.isCesiumVisible = false;
-            container.style.display = 'none';
-            this.canvas.style.display = 'block';
-            return;
-        }
         container.style.display = 'block';
-        this.canvas.style.display = 'none';
-        await this.terrainDataPromise;
         if (this.cesiumViewer) {
             this.cesiumViewer.resize();
             this.isCesiumVisible = true;
+            this.connectCesiumIon();
             return;
         }
         if (!window.Cesium) {
-            container.style.display = 'none';
-            this.canvas.style.display = 'block';
-            console.error('CesiumJS failed to load; using the Canvas 3D renderer.');
+            container.style.display = 'block';
+            this.setCesiumStatus('CesiumJS unavailable; check the network connection');
+            console.error('CesiumJS failed to load.');
             return;
         }
 
@@ -472,7 +387,7 @@ class OctagonApp {
             fullscreenButton: false, infoBox: false, selectionIndicator: false,
             shouldAnimate: false
         });
-        this.cesiumViewer.imageryLayers.addImageryProvider(new C.UrlTemplateImageryProvider({
+        this.cesiumOsmImageryLayer = this.cesiumViewer.imageryLayers.addImageryProvider(new C.UrlTemplateImageryProvider({
             url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
             credit: new C.Credit('© OpenStreetMap contributors')
         }));
@@ -480,87 +395,339 @@ class OctagonApp {
         this.cesiumViewer.scene.globe.baseColor = C.Color.fromCssColorString('#26342e');
         this.cesiumViewer.scene.globe.enableLighting = true;
         this.cesiumViewer.scene.globe.showGroundAtmosphere = false;
-        this.cesiumViewer.scene.screenSpaceCameraController.minimumZoomDistance = 80;
+        this.cesiumViewer.scene.screenSpaceCameraController.minimumZoomDistance = 5;
         this.cesiumViewer.scene.screenSpaceCameraController.maximumZoomDistance = 100000;
-        this.cesiumViewer.entities.suspendEvents();
-        try {
-            this.addCesiumTerrain();
-            this.addCesiumMapFeatures();
-        } finally {
-            this.cesiumViewer.entities.resumeEvents();
-        }
+        const cameraController = this.cesiumViewer.scene.screenSpaceCameraController;
+        cameraController.enableRotate = false;
+        cameraController.enableTranslate = true;
+        cameraController.enableTilt = false;
+        cameraController.enableLook = false;
+        cameraController.translateEventTypes = C.CameraEventType.LEFT_DRAG;
         this.addCesiumTacticalOverlay();
+        this.setupCesiumNodeDrag();
         this.flyCesiumHome();
         this.cesiumViewer.resize();
         this.isCesiumVisible = true;
+        this.connectCesiumIon();
     }
 
     localToCesium(x, y, height = 0) {
         const C = window.Cesium;
-        const centerLat = 37.48593, centerLon = 127.12236;
+        const centerLat = this.mapLocation.lat, centerLon = this.mapLocation.lon;
         const lat = centerLat + y / 111320;
         const lon = centerLon + x / (111320 * Math.cos(centerLat * Math.PI / 180));
         return C.Cartesian3.fromDegrees(lon, lat, height);
     }
 
+    getNodeGeographicPosition(node) {
+        const fallback = this.lastValidNodePositions.get(node.id);
+        const configuredCenter = this.mapLocation || MAP_LOCATIONS.munjeong;
+        const center = Number.isFinite(configuredCenter.lat) && Number.isFinite(configuredCenter.lon)
+            ? configuredCenter : MAP_LOCATIONS.munjeong;
+        const x = Number.isFinite(node.x) ? node.x : 0;
+        const y = Number.isFinite(node.y) ? node.y : 0;
+        let latitude = Number.isFinite(center.lat) ? center.lat + y / 111320 : NaN;
+        let longitude = Number.isFinite(center.lon)
+            ? center.lon + x / (111320 * Math.cos(center.lat * Math.PI / 180))
+            : NaN;
+        let altitude = Number.isFinite(node.z) && node.z !== 0 && Math.abs(node.z) <= 100000
+            ? node.z
+            : (fallback?.altitude_m ?? RADIO_ANTENNA_HEIGHT_M);
+
+        const validLatLon = Number.isFinite(latitude) && Number.isFinite(longitude)
+            && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180
+            && !(latitude === 0 && longitude === 0);
+        if (!validLatLon) {
+            latitude = fallback?.latitude ?? center.lat;
+            longitude = fallback?.longitude ?? center.lon;
+        }
+        if (!Number.isFinite(altitude) || altitude === 0 || Math.abs(altitude) > 100000) {
+            altitude = fallback?.altitude_m ?? RADIO_ANTENNA_HEIGHT_M;
+        }
+
+        const position = { latitude, longitude, altitude_m: altitude };
+        this.lastValidNodePositions.set(node.id, position);
+        return position;
+    }
+
+    createTelemetryNodeSnapshot() {
+        const now = performance.now();
+        const elapsedSeconds = this.lastTelemetrySnapshotAt === null
+            ? 0
+            : Math.max(0.001, (now - this.lastTelemetrySnapshotAt) / 1000);
+        const snapshot = this.nodes.map(node => {
+            const position = this.getNodeGeographicPosition(node);
+            const x = Number.isFinite(node.x) ? node.x : 0;
+            const y = Number.isFinite(node.y) ? node.y : 0;
+            const z = position.altitude_m;
+            const previous = this.lastTelemetryPositions.get(node.id);
+            const moved = previous && Math.hypot(x - previous.x, y - previous.y) > 0.001;
+            // Derive velocity from transmitted positions, not stale animation state.
+            // This makes a stationary node report zero even if a previous drag/patrol
+            // left a velocity behind. z follows terrain sampling, not vertical motion.
+            const vx = moved && elapsedSeconds > 0 ? (x - previous.x) / elapsedSeconds : 0;
+            const vy = moved && elapsedSeconds > 0 ? (y - previous.y) / elapsedSeconds : 0;
+            node.vx = vx;
+            node.vy = vy;
+            node.vz = 0;
+            this.lastTelemetryPositions.set(node.id, { x, y });
+            return {
+                id: node.id,
+                name: node.name,
+                role: node.role,
+                x, y, z,
+                position_3d: position,
+                vx,
+                vy,
+                vz: 0
+            };
+        });
+        this.lastTelemetrySnapshotAt = now;
+        return snapshot;
+    }
+
     flyCesiumHome() {
         if (!this.cesiumViewer) return;
         this.cesiumViewer.camera.flyTo({
-            destination: window.Cesium.Cartesian3.fromDegrees(127.12236, 37.48593, 12000),
-            orientation: { heading: 0, pitch: -0.95, roll: 0 }, duration: 1.2
+            destination: window.Cesium.Cartesian3.fromDegrees(this.mapLocation.lon, this.mapLocation.lat, Math.max(5, this.scaleMeters / 1.15)),
+            orientation: { heading: 0, pitch: -1.05, roll: 0 }, duration: 1.4
         });
     }
 
-    addCesiumTerrain() {
-        if (!this.terrain.demGrid) return;
+    setCesiumStatus(message) {
+        const status = document.getElementById('terrain-data-status');
+        if (status) status.textContent = message;
+    }
+
+    async connectCesiumIon() {
+        if (!this.cesiumViewer || !window.Cesium) return;
         const C = window.Cesium;
-        const grid = this.terrain.demGrid;
-        const values = grid.values;
-        const minHeight = Math.min(...values), maxHeight = Math.max(...values);
-        for (let row = 0; row < grid.columns - 1; row++) {
-            for (let col = 0; col < grid.columns - 1; col++) {
-                const x = -3000 + col * grid.step, y = -3000 + row * grid.step;
-                const sample = (dx, dy) => values[(row + dy) * grid.columns + col + dx];
-                const points = [
-                    this.localToCesium(x, y, sample(0, 0)), this.localToCesium(x + grid.step, y, sample(1, 0)),
-                    this.localToCesium(x + grid.step, y + grid.step, sample(1, 1)), this.localToCesium(x, y + grid.step, sample(0, 1))
-                ];
-                const average = (sample(0, 0) + sample(1, 0) + sample(1, 1) + sample(0, 1)) / 4;
-                const t = Math.max(0, Math.min(1, (average - minHeight) / Math.max(maxHeight - minHeight, 1)));
-                const color = C.Color.lerp(C.Color.fromCssColorString('#31473b'), C.Color.fromCssColorString('#837b62'), t, new C.Color());
-                this.cesiumViewer.entities.add({
-                    polygon: { hierarchy: points, perPositionHeight: true, material: color.withAlpha(0.72), outline: false }
-                });
+        const requestId = ++this.ionLoadId;
+        this.setCesiumStatus('Connecting Cesium 3D terrain and buildings…');
+        try {
+            const token = localStorage.getItem('octagonCesiumIonToken');
+            if (token) C.Ion.defaultAccessToken = token;
+        } catch (error) { /* use Cesium's evaluation token when browser storage is unavailable */ }
+
+        if (this.cesiumBuildingsTileset) {
+            this.cesiumViewer.scene.primitives.remove(this.cesiumBuildingsTileset);
+            this.cesiumBuildingsTileset = null;
+        }
+        if (this.cesiumIonImageryLayer) {
+            this.cesiumViewer.imageryLayers.remove(this.cesiumIonImageryLayer, true);
+            this.cesiumIonImageryLayer = null;
+        }
+        if (this.cesiumOsmImageryLayer) this.cesiumOsmImageryLayer.show = true;
+        this.cesiumViewer.terrainProvider = new C.EllipsoidTerrainProvider();
+        this.cesiumTerrainProvider = null;
+
+        this.ionLoadPromise = (async () => {
+            let terrainReady = false;
+            let buildingsReady = false;
+            try {
+                const terrainProvider = await C.createWorldTerrainAsync({ requestVertexNormals: true, requestWaterMask: true });
+                if (requestId !== this.ionLoadId || !this.cesiumViewer) return;
+                this.cesiumViewer.terrainProvider = terrainProvider;
+                this.cesiumTerrainProvider = terrainProvider;
+                terrainReady = true;
+                this.sampleTacticalNodeHeights(terrainProvider);
+            } catch (error) {
+                console.warn('Cesium World Terrain could not be loaded.', error);
             }
+            try {
+                const tileset = await C.createOsmBuildingsAsync();
+                if (requestId !== this.ionLoadId || !this.cesiumViewer) return;
+                tileset.style = new C.Cesium3DTileStyle({
+                    color: { conditions: [
+                        ["${feature['cesium#estimatedHeight']} >= 120", "color('#ff5a50')"],
+                        ["${feature['cesium#estimatedHeight']} >= 60", "color('#ffb347')"],
+                        ["${feature['cesium#estimatedHeight']} >= 20", "color('#66d9ef')"],
+                        ["true", "color('#a8c7d8')"]
+                    ] }
+                });
+                this.cesiumViewer.scene.primitives.add(tileset);
+                this.cesiumBuildingsTileset = tileset;
+                buildingsReady = true;
+            } catch (error) {
+                console.warn('Cesium OSM Buildings could not be loaded.', error);
+            }
+            try {
+                const imageryProvider = await C.createWorldImageryAsync({ style: C.IonWorldImageryStyle.AERIAL_WITH_LABELS });
+                if (requestId !== this.ionLoadId || !this.cesiumViewer) return;
+                this.cesiumIonImageryLayer = this.cesiumViewer.imageryLayers.addImageryProvider(imageryProvider);
+                this.cesiumOsmImageryLayer.show = false;
+            } catch (error) {
+                console.warn('Cesium World Imagery could not be loaded; keeping OpenStreetMap imagery.', error);
+            }
+            if (requestId === this.ionLoadId) {
+                this.setCesiumStatus(terrainReady && buildingsReady ? 'Cesium terrain + 3D buildings streaming' : 'Cesium ion token required for 3D terrain/buildings');
+            }
+        })();
+        await this.ionLoadPromise;
+    }
+
+    async sampleTacticalNodeHeights(terrainProvider) {
+        const C = window.Cesium;
+        const location = this.mapLocation;
+        try {
+            const positions = this.nodes.map(node => C.Cartographic.fromDegrees(
+                location.lon + node.x / (111320 * Math.cos(location.lat * Math.PI / 180)),
+                location.lat + node.y / 111320
+            ));
+            const sampled = await C.sampleTerrainMostDetailed(terrainProvider, positions);
+            if (location !== this.mapLocation) return;
+            sampled.forEach((point, index) => {
+                if (Number.isFinite(point.height)) {
+                    this.nodeGroundHeights[this.nodes[index].id] = point.height;
+                    this.nodes[index].z = parseFloat((point.height + RADIO_ANTENNA_HEIGHT_M).toFixed(1));
+                }
+            });
+            this.cesiumViewer.scene.requestRender();
+        } catch (error) {
+            console.warn('Could not sample Cesium terrain below tactical nodes.', error);
         }
     }
 
-    addCesiumMapFeatures() {
+    async refreshCesiumRadioProfiles(force = false) {
+        const viewer = this.cesiumViewer;
+        if (!viewer || this.radioProfilePromise) return;
+        const now = performance.now();
+        if (!force && now - this.radioProfileRefreshAt < 900) return;
+        this.radioProfileRefreshAt = now;
         const C = window.Cesium;
-        for (const feature of this.terrain.osmFeatures) {
-            if (feature.kind === 'building') {
-                const positions = feature.footprint.map(point => this.localToCesium(point.x, point.y));
-                const ground = this.terrain.getElevation(feature.x, feature.y);
-                const color = feature.estimatedHeight ? '#657582' : feature.height >= 60 ? '#e57956' : feature.height >= 30 ? '#d5a64b' : '#3b718c';
-                this.cesiumViewer.entities.add({
-                    name: feature.name || 'OSM building',
-                    polygon: {
-                        hierarchy: positions, height: ground, extrudedHeight: ground + feature.height,
-                        material: C.Color.fromCssColorString(color).withAlpha(0.88),
-                        outline: true, outlineColor: C.Color.fromCssColorString('#89d5ec').withAlpha(0.65)
-                    }
-                });
-            } else if (feature.kind === 'water') {
-                const positions = feature.points.map(point => this.localToCesium(point.x, point.y, this.terrain.getElevation(point.x, point.y) + 1));
-                if (feature.points.length >= 4 && Math.hypot(feature.points[0].x - feature.points.at(-1).x, feature.points[0].y - feature.points.at(-1).y) < 2) {
-                    this.cesiumViewer.entities.add({ polygon: { hierarchy: positions, material: C.Color.fromCssColorString('#147da0').withAlpha(0.55), perPositionHeight: true } });
-                } else {
-                    this.cesiumViewer.entities.add({ polyline: { positions, width: 3, material: C.Color.fromCssColorString('#26bde8') } });
+        const location = this.mapLocation;
+        const pairs = [];
+        const positions = [];
+        for (let i = 0; i < this.nodes.length; i++) {
+            for (let j = i + 1; j < this.nodes.length; j++) {
+                const a = this.nodes[i], b = this.nodes[j];
+                const horizontalDistance = Math.hypot(b.x - a.x, b.y - a.y);
+                const segments = Math.min(64, Math.max(3, Math.ceil(horizontalDistance / 10)));
+                const start = positions.length;
+                for (let step = 0; step <= segments; step++) {
+                    const t = step / segments;
+                    positions.push(C.Cartographic.fromDegrees(
+                        location.lon + (a.x + (b.x - a.x) * t) / (111320 * Math.cos(location.lat * Math.PI / 180)),
+                        location.lat + (a.y + (b.y - a.y) * t) / 111320
+                    ));
                 }
-            } else if (feature.kind === 'road' && ['motorway', 'trunk', 'primary', 'secondary', 'tertiary'].includes(feature.highway)) {
-                const positions = feature.points.map(point => this.localToCesium(point.x, point.y, this.terrain.getElevation(point.x, point.y) + 1));
-                this.cesiumViewer.entities.add({ polyline: { positions, width: feature.highway === 'primary' || feature.highway === 'trunk' ? 3 : 1.5, material: C.Color.fromCssColorString('#b6a985').withAlpha(0.68) } });
+                pairs.push({ a, b, start, count: segments + 1 });
             }
+        }
+        this.radioProfilePromise = (async () => {
+            try {
+                const provider = this.cesiumTerrainProvider || viewer.terrainProvider;
+                let ground = positions.map(() => ({ height: 0 }));
+                try { ground = await C.sampleTerrainMostDetailed(provider, positions.map(p => C.Cartographic.clone(p))); }
+                catch (error) { /* ellipsoid fallback: ground remains zero */ }
+                let surfaces = ground;
+                try {
+                    if (viewer.scene.sampleHeightSupported) {
+                        surfaces = await viewer.scene.sampleHeightMostDetailed(positions.map(p => C.Cartographic.clone(p)));
+                    }
+                } catch (error) { /* use terrain-only profile when 3D tile heights are unavailable */ }
+                if (location !== this.mapLocation) return;
+                const updated = new Map();
+                const sampleTime = performance.now();
+                const sampleDt = Math.max(0.1, (sampleTime - this.lastGroundSampleAt) / 1000);
+                for (const pair of pairs) {
+                    const points = [];
+                    for (let index = 0; index < pair.count; index++) {
+                        const offset = pair.start + index;
+                        const groundZ = Number.isFinite(ground[offset]?.height) ? ground[offset].height : 0;
+                        const surfaceZ = Number.isFinite(surfaces[offset]?.height) ? surfaces[offset].height : groundZ;
+                        points.push({ t: index / (pair.count - 1), groundZ, surfaceZ: Math.max(groundZ, surfaceZ) });
+                    }
+                    updated.set(`${pair.a.id}-${pair.b.id}`, { points, xA: pair.a.x, yA: pair.a.y, xB: pair.b.x, yB: pair.b.y });
+                    if (Math.hypot(this.nodes[pair.a.id - 1].x - pair.a.x, this.nodes[pair.a.id - 1].y - pair.a.y) < 3) {
+                        const node = this.nodes[pair.a.id - 1], altitude = points[0].groundZ + RADIO_ANTENNA_HEIGHT_M;
+                        node.vz = (altitude - node.z) / sampleDt;
+                        node.z = altitude;
+                        this.nodeGroundHeights[pair.a.id] = points[0].groundZ;
+                    }
+                    if (Math.hypot(this.nodes[pair.b.id - 1].x - pair.b.x, this.nodes[pair.b.id - 1].y - pair.b.y) < 3) {
+                        const node = this.nodes[pair.b.id - 1], altitude = points.at(-1).groundZ + RADIO_ANTENNA_HEIGHT_M;
+                        node.vz = (altitude - node.z) / sampleDt;
+                        node.z = altitude;
+                        this.nodeGroundHeights[pair.b.id] = points.at(-1).groundZ;
+                    }
+                }
+                this.radioPathProfiles = updated;
+                this.lastGroundSampleAt = sampleTime;
+                viewer.scene.requestRender();
+            } catch (error) {
+                console.warn('Cesium terrain/building radio profiles could not be sampled.', error);
+            } finally {
+                this.radioProfilePromise = null;
+            }
+        })();
+        await this.radioProfilePromise;
+    }
+
+    analyzeCesiumRadioPath(nodeA, nodeB, _antennaHeight, wavelength) {
+        const key = nodeA.id < nodeB.id ? `${nodeA.id}-${nodeB.id}` : `${nodeB.id}-${nodeA.id}`;
+        const stored = this.radioPathProfiles.get(key);
+        const forward = nodeA.id < nodeB.id;
+        const dx = nodeB.x - nodeA.x, dy = nodeB.y - nodeA.y;
+        const horizontalDistance = Math.hypot(dx, dy);
+        const distance3D = Math.max(0.1, Math.hypot(horizontalDistance, (nodeB.z || 0) - (nodeA.z || 0)));
+        let isLOS = true, diffractionLossDb = 0, obstructionPoint = null;
+        let elevationA = (nodeA.z || 0) - RADIO_ANTENNA_HEIGHT_M;
+        let elevationB = (nodeB.z || 0) - RADIO_ANTENNA_HEIGHT_M;
+        let worstV = -Infinity;
+        const profileMatches = stored && Math.hypot(stored.xA - (forward ? nodeA.x : nodeB.x), stored.yA - (forward ? nodeA.y : nodeB.y)) < 3
+            && Math.hypot(stored.xB - (forward ? nodeB.x : nodeA.x), stored.yB - (forward ? nodeB.y : nodeA.y)) < 3;
+        const profile = profileMatches && horizontalDistance >= 1
+            ? (forward ? stored.points : [...stored.points].reverse().map(point => ({ ...point, t: 1 - point.t })))
+            : null;
+        if (profile?.length) {
+            elevationA = profile[0].groundZ;
+            elevationB = profile[profile.length - 1].groundZ;
+            for (let index = 1; index < profile.length - 1; index++) {
+                const point = profile[index], t = point.t;
+                const rayZ = nodeA.z + t * (nodeB.z - nodeA.z);
+                const clearance = rayZ - point.surfaceZ;
+                if (clearance < 0) isLOS = false;
+                const d1 = Math.max(0.5, horizontalDistance * t);
+                const d2 = Math.max(0.5, horizontalDistance * (1 - t));
+                const fresnel60 = 0.6 * Math.sqrt(Math.max(0, wavelength * d1 * d2 / horizontalDistance));
+                const intrusion = fresnel60 - clearance;
+                const v = intrusion * Math.sqrt((2 / wavelength) * (1 / d1 + 1 / d2));
+                if (v > worstV) {
+                    worstV = v;
+                    if (intrusion > 0) {
+                        obstructionPoint = {
+                            x: nodeA.x + t * (nodeB.x - nodeA.x),
+                            y: nodeA.y + t * (nodeB.y - nodeA.y),
+                            terrainZ: point.surfaceZ,
+                            d1, d2,
+                            building: point.surfaceZ - point.groundZ > 2 ? 'Cesium OSM 3D building' : null
+                        };
+                    }
+                }
+            }
+            if (worstV > -0.78) {
+                diffractionLossDb = Math.max(0, Math.min(45, 6.9 + 20 * Math.log10(Math.sqrt((worstV - 0.1) ** 2 + 1) + worstV - 0.1)));
+            }
+        }
+        return {
+            isLOS, dist3D: distance3D, elevationA, elevationB,
+            diffractionLossDb, foliageLossDb: 0, totalTerrainLossDb: diffractionLossDb,
+            obstructionPoint, obstructingBuilding: obstructionPoint?.building || null
+        };
+    }
+
+    setMapLocation(locationId) {
+        const location = MAP_LOCATIONS[locationId];
+        if (!location) return;
+        this.mapLocation = location;
+        this.nodeGroundHeights = {};
+        this.radioPathProfiles.clear();
+        this.nodes.forEach(node => { node.z = RADIO_ANTENNA_HEIGHT_M; node.vz = 0; });
+        document.getElementById('hud-terrain-val').textContent = location.name;
+        if (this.cesiumViewer && this.isCesiumVisible) {
+            this.flyCesiumHome();
+            if (this.cesiumTerrainProvider) this.sampleTacticalNodeHeights(this.cesiumTerrainProvider);
         }
     }
 
@@ -571,7 +738,7 @@ class OctagonApp {
         for (const node of this.nodes) {
             this.cesiumDataSource.entities.add({
                 id: `node-${node.id}`, name: `N${node.id} ${node.role || ''}`,
-                position: new C.CallbackProperty(() => this.localToCesium(node.x, node.y, this.terrain.getElevation(node.x, node.y) + 4), false),
+                position: new C.CallbackProperty(() => this.localToCesium(node.x, node.y, node.z), false),
                 point: { pixelSize: node.id === this.selectedNodeId ? 14 : 10, color: C.Color.fromCssColorString(node.color), outlineColor: C.Color.WHITE, outlineWidth: 2, heightReference: C.HeightReference.NONE },
                 label: { text: `N${node.id}`, font: 'bold 13px sans-serif', fillColor: C.Color.WHITE, outlineColor: C.Color.BLACK, outlineWidth: 3, style: C.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new C.Cartesian2(0, -18), disableDepthTestDistance: Number.POSITIVE_INFINITY }
             });
@@ -579,170 +746,169 @@ class OctagonApp {
         for (let i = 0; i < this.nodes.length; i++) {
             for (let j = i + 1; j < this.nodes.length; j++) {
                 const nodeA = this.nodes[i], nodeB = this.nodes[j];
+                const key = `${nodeA.id}-${nodeB.id}`;
+                const isNearestLink = new C.CallbackProperty(() => this.nearestNodeLinkKeys.has(key), false);
                 const linkPositions = new C.CallbackProperty(() => [
-                    this.localToCesium(nodeA.x, nodeA.y, this.terrain.getElevation(nodeA.x, nodeA.y) + 3),
-                    this.localToCesium(nodeB.x, nodeB.y, this.terrain.getElevation(nodeB.x, nodeB.y) + 3)
+                    this.localToCesium(nodeA.x, nodeA.y, nodeA.z),
+                    this.localToCesium(nodeB.x, nodeB.y, nodeB.z)
                 ], false);
+                const midpoint = new C.CallbackProperty(() => C.Cartesian3.midpoint(
+                    this.localToCesium(nodeA.x, nodeA.y, nodeA.z),
+                    this.localToCesium(nodeB.x, nodeB.y, nodeB.z),
+                    new C.Cartesian3()
+                ), false);
+                const distanceLabel = new C.CallbackProperty(() => {
+                    const distance = Math.hypot(nodeB.x - nodeA.x, nodeB.y - nodeA.y, nodeB.z - nodeA.z);
+                    return `${distance.toFixed(1)} m`;
+                }, false);
                 this.cesiumDataSource.entities.add({
+                    id: `link-${key}`,
                     polyline: {
-                        positions: linkPositions, width: 2,
+                        show: isNearestLink,
+                        positions: linkPositions,
+                        width: 3,
                         material: new C.ColorMaterialProperty(new C.CallbackProperty(() => {
                             const link = this.latestMatrix?.[i]?.[j];
-                            return link?.isLOS ? C.Color.LIME.withAlpha(0.65) : C.Color.CRIMSON.withAlpha(0.78);
+                            return link?.isLOS ? C.Color.LIME.withAlpha(0.8) : C.Color.CRIMSON.withAlpha(0.85);
                         }, false))
+                    }
+                });
+                this.cesiumDataSource.entities.add({
+                    id: `link-distance-${key}`,
+                    position: midpoint,
+                    label: {
+                        show: isNearestLink,
+                        text: distanceLabel,
+                        font: 'bold 12px sans-serif',
+                        fillColor: C.Color.WHITE,
+                        outlineColor: C.Color.BLACK,
+                        outlineWidth: 3,
+                        style: C.LabelStyle.FILL_AND_OUTLINE,
+                        showBackground: true,
+                        backgroundColor: C.Color.BLACK.withAlpha(0.68),
+                        pixelOffset: new C.Cartesian2(0, -8),
+                        disableDepthTestDistance: Number.POSITIVE_INFINITY
                     }
                 });
             }
         }
     }
 
-    onMouseDown(e) {
-        const rect = this.canvas.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
-        this.lastMousePos = { x: mx, y: my };
-
-        if (this.viewMode === '3d') {
-            if (e.button === 0) {
-                this.isOrbiting3D = true;
-            } else {
-                this.isPanning = true;
+    setupCesiumNodeDrag() {
+        const C = window.Cesium;
+        const scene = this.cesiumViewer.scene;
+        const cameraController = scene.screenSpaceCameraController;
+        const handler = new C.ScreenSpaceEventHandler(scene.canvas);
+        this.cesiumInputHandler = handler;
+        const setCameraInputLocked = (locked) => {
+            if (locked) {
+                this.cesiumCameraInputState = {
+                    enableInputs: cameraController.enableInputs,
+                    enableRotate: cameraController.enableRotate,
+                    enableTranslate: cameraController.enableTranslate,
+                    enableTilt: cameraController.enableTilt,
+                    enableLook: cameraController.enableLook,
+                    enableZoom: cameraController.enableZoom
+                };
+                cameraController.enableInputs = false;
+                cameraController.enableRotate = false;
+                cameraController.enableTranslate = false;
+                cameraController.enableTilt = false;
+                cameraController.enableLook = false;
+                cameraController.enableZoom = false;
+                return;
             }
-            return;
-        }
-
-        // 2D Mode Node Selection & Drag
-        let clickedNode = null;
-        for (let i = this.nodes.length - 1; i >= 0; i--) {
-            const n = this.nodes[i];
-            const sp = this.worldToScreen(n.x, n.y);
-            const dist = Math.hypot(mx - sp.x, my - sp.y);
-            if (dist <= n.radiusPx + 6) {
-                clickedNode = n;
-                break;
-            }
-        }
-
-        if (clickedNode && e.button === 0) {
-            this.isDraggingNode = true;
-            this.draggedNode = clickedNode;
-            this.selectedNodeId = clickedNode.id;
-            const wPos = this.screenToWorld(mx, my);
-            this.lastDragWorldPos = { x: wPos.x, y: wPos.y };
-            this.lastDragTime = performance.now();
-            this.updateTelemetryCard();
-        } else {
-            this.isPanning = true;
-        }
-    }
-
-    onMouseMove(e) {
-        const rect = this.canvas.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
-        const dx = mx - this.lastMousePos.x;
-        const dy = my - this.lastMousePos.y;
-        this.lastMousePos = { x: mx, y: my };
-
-        if (this.viewMode === '3d') {
-            if (this.isOrbiting3D) {
-                this.camera3D.yaw += dx * 0.008;
-                this.camera3D.pitch = Math.min(Math.max(this.camera3D.pitch + dy * 0.008, 0.1), Math.PI / 2.1);
-                this.updateHUD();
-            } else if (this.isPanning) {
-                this.camera3D.cx -= dx * 0.5;
-                this.camera3D.cy += dy * 0.5;
-                this.updateHUD();
-            }
-            return;
-        }
-
-        // 2D Mode Dragging
-        if (this.isDraggingNode && this.draggedNode) {
-            const wPos = this.screenToWorld(mx, my);
-            const now = performance.now();
-            const dtSec = (now - this.lastDragTime) / 1000.0;
-
-            if (dtSec > 0.015) {
-                this.draggedNode.vx = (wPos.x - this.lastDragWorldPos.x) / dtSec;
-                this.draggedNode.vy = (wPos.y - this.lastDragWorldPos.y) / dtSec;
-                this.lastDragWorldPos = { x: wPos.x, y: wPos.y };
+            const state = this.cesiumCameraInputState;
+            if (!state) return;
+            Object.assign(cameraController, state);
+            this.cesiumCameraInputState = null;
+        };
+        const nodeFromScreenPosition = (screenPosition) => {
+            const picked = scene.pick(screenPosition);
+            const id = picked?.id?.id || picked?.primitive?.id;
+            if (typeof id !== 'string' || !id.startsWith('node-')) return null;
+            return this.nodes.find(node => `node-${node.id}` === id) || null;
+        };
+        const moveNodeToScreenPosition = (screenPosition, now) => {
+            if (!this.draggedNode) return;
+            const ray = this.cesiumViewer.camera.getPickRay(screenPosition);
+            const point = ray && scene.globe.pick(ray, scene);
+            if (!point) return;
+            const cartographic = C.Cartographic.fromCartesian(point);
+            const location = this.mapLocation;
+            const x = C.Math.toDegrees(cartographic.longitude) - location.lon;
+            const y = C.Math.toDegrees(cartographic.latitude) - location.lat;
+            const worldX = x * 111320 * Math.cos(location.lat * Math.PI / 180);
+            const worldY = y * 111320;
+            const dt = (now - this.lastDragTime) / 1000;
+            const previousAltitude = this.draggedNode.z;
+            if (dt > 0.015) {
+                this.draggedNode.vx = (worldX - this.lastDragWorldPos.x) / dt;
+                this.draggedNode.vy = (worldY - this.lastDragWorldPos.y) / dt;
+                this.lastDragWorldPos = { x: worldX, y: worldY };
                 this.lastDragTime = now;
             }
-
-            this.draggedNode.x = Math.round(wPos.x * 10) / 10;
-            this.draggedNode.y = Math.round(wPos.y * 10) / 10;
-            this.draggedNode.z = parseFloat((this.terrain.getElevation(this.draggedNode.x, this.draggedNode.y) + 2.0).toFixed(1));
-
+            this.draggedNode.x = Math.round(worldX * 10) / 10;
+            this.draggedNode.y = Math.round(worldY * 10) / 10;
+            this.draggedNode.z = parseFloat((cartographic.height + RADIO_ANTENNA_HEIGHT_M).toFixed(1));
+            this.draggedNode.vz = dt > 0.015 ? (this.draggedNode.z - previousAltitude) / dt : 0;
+            this.nodeGroundHeights[this.draggedNode.id] = cartographic.height;
+            this.cesiumViewer.scene.requestRender();
             this.updateTelemetryCard();
-        } else if (this.isPanning) {
-            this.panX += dx;
-            this.panY += dy;
-            this.updateHUD();
-        }
-    }
-
-    onMouseUp() {
-        if (this.isDraggingNode && this.draggedNode) {
+        };
+        handler.setInputAction((movement) => {
+            const node = nodeFromScreenPosition(movement.position);
+            if (!node) return;
+            this.draggedNode = node;
+            this.isDraggingNode = true;
+            this.selectedNodeId = node.id;
+            this.lastDragTime = performance.now();
+            this.lastDragWorldPos = { x: node.x, y: node.y };
+            setCameraInputLocked(true);
+            this.updateTelemetryCard();
+        }, C.ScreenSpaceEventType.LEFT_DOWN);
+        handler.setInputAction((movement) => {
+            if (this.draggedNode) moveNodeToScreenPosition(movement.endPosition, performance.now());
+        }, C.ScreenSpaceEventType.MOUSE_MOVE);
+        handler.setInputAction(() => {
+            if (!this.draggedNode) return;
             this.draggedNode.vx = 0;
             this.draggedNode.vy = 0;
-            this.isDraggingNode = false;
+            this.draggedNode.vz = 0;
             this.draggedNode = null;
+            this.isDraggingNode = false;
+            setCameraInputLocked(false);
             this.updateTelemetryCard();
-        }
-        this.isPanning = false;
-        this.isOrbiting3D = false;
-    }
-
-    onWheel(e) {
-        e.preventDefault();
-        const rect = this.canvas.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
-        const zoomFactor = e.deltaY < 0 ? 1.12 : (1 / 1.12);
-
-        if (this.viewMode === '3d') {
-            this.camera3D.zoom = Math.min(Math.max(this.camera3D.zoom * zoomFactor, 0.4), 3.0);
-        } else {
-            this.zoomAt(mx, my, zoomFactor);
-        }
+        }, C.ScreenSpaceEventType.LEFT_UP);
     }
 
     updateScaleBar() {
         const barElem = document.getElementById('scale-bar-line');
         const labelElem = document.getElementById('scale-bar-label');
         if (!barElem || !labelElem) return;
-
-        const targetPx = 120;
-        const rawMeters = targetPx / this.pixelsPerMeter;
-        const niceSteps = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
-        let chosenMeters = niceSteps[0];
-        for (const step of niceSteps) {
-            if (Math.abs(step - rawMeters) < Math.abs(chosenMeters - rawMeters)) {
-                chosenMeters = step;
-            }
+        const barPixels = 120;
+        let groundWidthMeters = this.scaleMeters;
+        const viewer = this.cesiumViewer;
+        if (viewer) {
+            const C = window.Cesium, scene = viewer.scene;
+            const y = Math.round(scene.canvas.clientHeight / 2);
+            const x0 = Math.round((scene.canvas.clientWidth - barPixels) / 2);
+            const p0 = scene.globe.pick(viewer.camera.getPickRay(new C.Cartesian2(x0, y)), scene);
+            const p1 = scene.globe.pick(viewer.camera.getPickRay(new C.Cartesian2(x0 + barPixels, y)), scene);
+            if (p0 && p1) groundWidthMeters = C.Cartesian3.distance(p0, p1);
         }
-
-        const barPx = chosenMeters * this.pixelsPerMeter;
-        barElem.style.width = `${barPx}px`;
-        labelElem.textContent = `${chosenMeters} m`;
+        const steps = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000];
+        const chosen = steps.reduce((best, value) => Math.abs(value - groundWidthMeters) < Math.abs(best - groundWidthMeters) ? value : best, steps[0]);
+        barElem.style.width = `${barPixels}px`;
+        labelElem.textContent = `${chosen} m`;
     }
 
     updateHUD() {
         const hudPan = document.getElementById('hud-pan-val');
-        if (hudPan) {
-            if (this.viewMode === '3d') {
-                const degPitch = Math.round(this.camera3D.pitch * 180 / Math.PI);
-                const degYaw = Math.round(this.camera3D.yaw * 180 / Math.PI);
-                hudPan.textContent = `Pitch: ${degPitch}° / Yaw: ${degYaw}°`;
-            } else {
-                const worldPan = this.screenToWorld(this.canvas.width / 2, this.canvas.height / 2);
-                hudPan.textContent = `(${Math.round(worldPan.x)}m, ${Math.round(worldPan.y)}m)`;
-            }
-        }
+        if (hudPan) hudPan.textContent = `${this.mapLocation.lat.toFixed(5)}, ${this.mapLocation.lon.toFixed(5)}`;
     }
 
-    updateTelemetryCard() {
+    updateTelemetryCard(updateLinkSummary = true) {
         const selNode = this.nodes.find(n => n.id === this.selectedNodeId) || this.nodes[0];
         document.getElementById('selected-node-badge-text').textContent = `NODE ${selNode.id}`;
         document.getElementById('sel-node-color-badge').textContent = selNode.id;
@@ -759,7 +925,7 @@ class OctagonApp {
         // Update links list in sidebar
         const listContainer = document.getElementById('links-summary-list');
         const losSummary = document.getElementById('los-status-summary');
-        if (listContainer && this.latestMatrix.length > 0) {
+        if (updateLinkSummary && listContainer && this.latestMatrix.length > 0) {
             const row = this.latestMatrix[selNode.id - 1] || [];
             let html = '';
             let losCount = 0, nlosCount = 0;
@@ -837,33 +1003,64 @@ class OctagonApp {
         this.txTimer = setInterval(() => this.sendMatrixPayload(), intervalMs);
     }
 
+    updateNearestNodeLinks(nodes) {
+        // A per-node nearest-neighbor graph can contain separate components.
+        // Kruskal's algorithm gives the globally shortest set of links that
+        // connects every node (a minimum spanning tree has n - 1 edges).
+        const parent = new Map(nodes.map(node => [node.id, node.id]));
+        const find = id => {
+            let root = id;
+            while (parent.get(root) !== root) root = parent.get(root);
+            while (id !== root) {
+                const next = parent.get(id);
+                parent.set(id, root);
+                id = next;
+            }
+            return root;
+        };
+        const edges = [];
+        for (let i = 0; i < nodes.length; i++) {
+            for (let j = i + 1; j < nodes.length; j++) {
+                const a = nodes[i], b = nodes[j];
+                edges.push({ a, b, distance: Math.hypot(b.x - a.x, b.y - a.y, (b.z || 0) - (a.z || 0)) });
+            }
+        }
+        edges.sort((a, b) => a.distance - b.distance);
+
+        const links = new Set();
+        for (const { a, b } of edges) {
+            const rootA = find(a.id), rootB = find(b.id);
+            if (rootA === rootB) continue;
+            parent.set(rootA, rootB);
+            links.add(`${Math.min(a.id, b.id)}-${Math.max(a.id, b.id)}`);
+            if (links.size === nodes.length - 1) break;
+        }
+        this.nearestNodeLinkKeys = links;
+    }
+
     sendMatrixPayload() {
         const dt = 1.0 / this.updateRateHz;
-        // Compute matrix with 3D terrain integration
-        this.latestMatrix = this.wireless.computeMatrix(this.nodes, dt, this.terrain);
+        this.refreshCesiumRadioProfiles();
+
+        // Calculate wireless state and geographic telemetry from one validated snapshot.
+        const nodes = this.createTelemetryNodeSnapshot();
+        if (nodes.length !== 8) return;
+        this.latestMatrix = this.wireless.computeMatrix(nodes, dt, this.cesiumRadioEnvironment);
+        this.updateTelemetryCard(false);
+        this.updateNearestNodeLinks(nodes);
 
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             const payload = {
                 timestamp: Date.now(),
                 scale_m: this.scaleMeters,
-                terrain_preset: this.terrain.preset,
+                terrain_preset: 'cesium_world',
                 carrier_freq_ghz: parseFloat((this.wireless.frequencyHz / 1e9).toFixed(2)),
                 path_loss_exp: this.wireless.pathLossExponent,
                 shadowing_sigma_db: this.wireless.shadowingSigma,
                 tx_power_dbm: this.wireless.txPowerDbm,
-                nodes: this.nodes.map(n => ({
-                    id: n.id,
-                    name: n.name,
-                    role: n.role,
-                    x: n.x,
-                    y: n.y,
-                    z: n.z,
-                    vx: parseFloat(n.vx.toFixed(2)),
-                    vy: parseFloat(n.vy.toFixed(2))
-                })),
+                nodes,
                 matrix: this.latestMatrix
             };
-
             this.ws.send(JSON.stringify(payload));
             this.frameCount++;
         }
@@ -880,25 +1077,39 @@ class OctagonApp {
 
     updatePatrol(dt) {
         if (!this.isPatrolling) return;
-        this.patrolAngle += dt * 0.4;
-
-        for (let i = 0; i < 8; i++) {
-            if (this.isDraggingNode && this.draggedNode && this.draggedNode.id === this.nodes[i].id) {
-                continue;
+        const now = performance.now();
+        const maxInfantrySpeed = 1.5; // m/s, representative upper walking pace
+        const movementRadius = Math.max(2, this.scaleMeters * 0.38);
+        for (const node of this.nodes) {
+            if (this.isDraggingNode && this.draggedNode?.id === node.id) continue;
+            if (!node.patrolChangeAt || now >= node.patrolChangeAt) {
+                node.patrolHeading = Math.random() * Math.PI * 2;
+                node.patrolSpeed = 0.2 + Math.random() * (maxInfantrySpeed - 0.2);
+                node.patrolChangeAt = now + 900 + Math.random() * 2100;
             }
-            const offset = (i * 2 * Math.PI) / 8;
-            const r = this.scaleMeters * (0.4 + (i % 3) * 0.25);
-            const speed = 0.4 + (i % 2) * 0.2;
-            const a = this.patrolAngle * speed + offset;
-
-            const nextX = r * Math.cos(a);
-            const nextY = r * Math.sin(a * 1.2);
-
-            this.nodes[i].vx = (nextX - this.nodes[i].x) / dt;
-            this.nodes[i].vy = (nextY - this.nodes[i].y) / dt;
-            this.nodes[i].x = Math.round(nextX * 10) / 10;
-            this.nodes[i].y = Math.round(nextY * 10) / 10;
-            this.nodes[i].z = parseFloat((this.terrain.getElevation(this.nodes[i].x, this.nodes[i].y) + 2.0).toFixed(1));
+            let vx = Math.cos(node.patrolHeading) * node.patrolSpeed;
+            let vy = Math.sin(node.patrolHeading) * node.patrolSpeed;
+            let nextX = node.x + vx * dt;
+            let nextY = node.y + vy * dt;
+            if (Math.hypot(nextX, nextY) > movementRadius) {
+                // Turn back toward the current map center, with a random heading offset.
+                node.patrolHeading = Math.atan2(-node.y, -node.x) + (Math.random() - 0.5) * Math.PI / 2;
+                vx = Math.cos(node.patrolHeading) * node.patrolSpeed;
+                vy = Math.sin(node.patrolHeading) * node.patrolSpeed;
+                nextX = node.x + vx * dt;
+                nextY = node.y + vy * dt;
+                if (Math.hypot(nextX, nextY) > movementRadius) {
+                    const scale = movementRadius / Math.max(0.001, Math.hypot(nextX, nextY));
+                    nextX *= scale;
+                    nextY *= scale;
+                }
+            }
+            node.vx = dt > 0 ? (nextX - node.x) / dt : 0;
+            node.vy = dt > 0 ? (nextY - node.y) / dt : 0;
+            // Keep sub-decimeter movement so telemetry-derived velocity remains smooth.
+            node.x = nextX;
+            node.y = nextY;
+            node.z = (this.nodeGroundHeights[node.id] ?? 0) + RADIO_ANTENNA_HEIGHT_M;
         }
     }
 
@@ -908,276 +1119,10 @@ class OctagonApp {
 
         this.updatePatrol(dt);
 
-        if (this.viewMode !== '3d' || !this.isCesiumVisible) this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-
-        if (this.viewMode === '3d') {
-            if (!this.isCesiumVisible) {
-                this.terrain.render3D(this.ctx, this.canvas.width, this.canvas.height, this.camera3D, this.nodes, this.latestMatrix, this.selectedNodeId);
-            }
-        } else {
-            // 2D Tactical Map View
-            this.drawGrid();
-            this.terrain.render2D(
-                this.ctx,
-                (x, y) => this.worldToScreen(x, y),
-                (sx, sy) => this.screenToWorld(sx, sy),
-                this.canvas.width,
-                this.canvas.height,
-                this.pixelsPerMeter,
-                this.showContours
-            );
-            this.drawOriginAxes();
-            this.drawWirelessLinks();
-            this.drawNodes(timestamp);
-        }
-
         requestAnimationFrame((t) => this.renderLoop(t));
     }
 
-    drawGrid() {
-        const ctx = this.ctx;
-        const w = this.canvas.width;
-        const h = this.canvas.height;
 
-        let majorStepM = this.scaleMeters;
-        let minorStepM = majorStepM / 5;
-
-        const minorPx = minorStepM * this.pixelsPerMeter;
-        const majorPx = majorStepM * this.pixelsPerMeter;
-
-        const centerScreen = this.worldToScreen(0, 0);
-
-        ctx.strokeStyle = 'rgba(20, 32, 48, 0.5)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        const startX = centerScreen.x % minorPx;
-        for (let x = startX; x < w; x += minorPx) {
-            ctx.moveTo(x, 0);
-            ctx.lineTo(x, h);
-        }
-        const startY = centerScreen.y % minorPx;
-        for (let y = startY; y < h; y += minorPx) {
-            ctx.moveTo(0, y);
-            ctx.lineTo(w, y);
-        }
-        ctx.stroke();
-
-        ctx.strokeStyle = 'rgba(0, 240, 255, 0.15)';
-        ctx.lineWidth = 1.2;
-        ctx.fillStyle = 'rgba(136, 153, 170, 0.6)';
-        ctx.font = '10px "JetBrains Mono", monospace';
-        ctx.beginPath();
-        const majorStartX = centerScreen.x % majorPx;
-        for (let x = majorStartX; x < w; x += majorPx) {
-            ctx.moveTo(x, 0);
-            ctx.lineTo(x, h);
-            const worldX = Math.round(this.screenToWorld(x, 0).x);
-            if (Math.abs(worldX) > 0.01) {
-                ctx.fillText(`${worldX}m`, x + 4, centerScreen.y - 4);
-            }
-        }
-        const majorStartY = centerScreen.y % majorPx;
-        for (let y = majorStartY; y < h; y += majorPx) {
-            ctx.moveTo(0, y);
-            ctx.lineTo(w, y);
-            const worldY = Math.round(this.screenToWorld(0, y).y);
-            if (Math.abs(worldY) > 0.01) {
-                ctx.fillText(`${worldY}m`, centerScreen.x + 4, y - 4);
-            }
-        }
-        ctx.stroke();
-    }
-
-    drawOriginAxes() {
-        const ctx = this.ctx;
-        const o = this.worldToScreen(0, 0);
-
-        ctx.strokeStyle = 'rgba(0, 240, 255, 0.5)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(o.x - 25, o.y); ctx.lineTo(o.x + 25, o.y);
-        ctx.moveTo(o.x, o.y - 25); ctx.lineTo(o.x, o.y + 25);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.arc(o.x, o.y, 5, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(0, 240, 255, 0.2)';
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.fillStyle = 'rgba(0, 240, 255, 0.7)';
-        ctx.font = '10px monospace';
-        ctx.fillText('(0,0) 문정역 중앙', o.x + 8, o.y + 14);
-    }
-
-    drawWirelessLinks() {
-        const ctx = this.ctx;
-        if (!this.latestMatrix || this.latestMatrix.length < 8) return;
-
-        for (let i = 0; i < 8; i++) {
-            const p1 = this.worldToScreen(this.nodes[i].x, this.nodes[i].y);
-            for (let j = i + 1; j < 8; j++) {
-                const p2 = this.worldToScreen(this.nodes[j].x, this.nodes[j].y);
-                const link = this.latestMatrix[i][j];
-                if (!link) continue;
-
-                const isSelectedLink = (this.nodes[i].id === this.selectedNodeId || this.nodes[j].id === this.selectedNodeId);
-
-                ctx.save();
-                if (link.isLOS) {
-                    // LOS: 녹색/청록색 실선
-                    let strokeColor = link.linkQuality >= 70 ? '0, 255, 136' : '255, 183, 3';
-                    let alpha = isSelectedLink ? 0.9 : 0.25;
-                    ctx.strokeStyle = `rgba(${strokeColor}, ${alpha})`;
-                    ctx.lineWidth = isSelectedLink ? 2.5 : 1.2;
-                    ctx.beginPath();
-                    ctx.moveTo(p1.x, p1.y);
-                    ctx.lineTo(p2.x, p2.y);
-                    ctx.stroke();
-                } else {
-                    // NLOS (빌딩 또는 지형 차폐): 붉은색 점선 & 회절 손실
-                    let alpha = isSelectedLink ? 0.95 : 0.35;
-                    ctx.strokeStyle = `rgba(255, 51, 102, ${alpha})`;
-                    ctx.lineWidth = isSelectedLink ? 2.5 : 1.2;
-                    ctx.setLineDash([5, 5]);
-                    ctx.beginPath();
-                    ctx.moveTo(p1.x, p1.y);
-                    ctx.lineTo(p2.x, p2.y);
-                    ctx.stroke();
-
-                    // 차폐 장애물 마커 뱃지
-                    if (isSelectedLink && link.obstructionPoint) {
-                        const obsScreen = this.worldToScreen(link.obstructionPoint.x, link.obstructionPoint.y);
-                        ctx.setLineDash([]);
-                        ctx.fillStyle = '#ff0055';
-                        ctx.beginPath();
-                        ctx.arc(obsScreen.x, obsScreen.y, 5, 0, Math.PI * 2);
-                        ctx.fill();
-                        ctx.fillStyle = '#fff';
-                        ctx.font = 'bold 9px monospace';
-                        ctx.fillText(`⚔ 차폐 +${link.diffractionLossDb}dB`, obsScreen.x + 8, obsScreen.y + 3);
-                    }
-                }
-
-                // Selected Link Mid-point Badge
-                if (isSelectedLink && link.isConnected) {
-                    const midX = (p1.x + p2.x) / 2;
-                    const midY = (p1.y + p2.y) / 2;
-                    ctx.setLineDash([]);
-                    ctx.fillStyle = 'rgba(10, 14, 20, 0.85)';
-                    ctx.fillRect(midX - 35, midY - 9, 70, 18);
-                    ctx.strokeStyle = link.isLOS ? 'var(--accent-green)' : 'var(--accent-red)';
-                    ctx.lineWidth = 1;
-                    ctx.strokeRect(midX - 35, midY - 9, 70, 18);
-
-                    ctx.fillStyle = '#fff';
-                    ctx.font = '9px "JetBrains Mono", monospace';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    const tag = link.isLOS ? 'LOS' : 'NLOS';
-                    ctx.fillText(`${link.distance3D.toFixed(0)}m|${link.pathLoss.toFixed(0)}dB|${tag}`, midX, midY);
-                    ctx.textAlign = 'start';
-                    ctx.textBaseline = 'alphabetic';
-                }
-                ctx.restore();
-            }
-        }
-    }
-
-    drawNodes(timestamp) {
-        const ctx = this.ctx;
-
-        for (const node of this.nodes) {
-            const sp = this.worldToScreen(node.x, node.y);
-            const isSelected = node.id === this.selectedNodeId;
-            const isDragged = this.isDraggingNode && this.draggedNode && this.draggedNode.id === node.id;
-
-            // 1. 노드 주변 고휘도 전술 펄스
-            const pulse = (timestamp * 0.003 + node.pulsePhase) % 1.0;
-            const pulseRadius = node.radiusPx + pulse * 25;
-            ctx.beginPath();
-            ctx.arc(sp.x, sp.y, pulseRadius, 0, Math.PI * 2);
-            ctx.strokeStyle = `${node.color}${Math.floor((1.0 - pulse) * 80).toString(16).padStart(2, '0')}`;
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
-
-            // 2. 선택 노드 강조 링
-            if (isSelected) {
-                ctx.beginPath();
-                ctx.arc(sp.x, sp.y, node.radiusPx + 9, 0, Math.PI * 2);
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 2.5;
-                ctx.setLineDash([4, 4]);
-                ctx.stroke();
-                ctx.setLineDash([]);
-            }
-
-            // 3. 노드 원체 (지형과 확실하게 대비되도록 고휘도 테두리 및 뚜렷한 배경)
-            ctx.beginPath();
-            ctx.arc(sp.x, sp.y, node.radiusPx, 0, Math.PI * 2);
-            ctx.fillStyle = isDragged ? '#ffffff' : '#0b1320';
-            ctx.fill();
-            ctx.strokeStyle = node.color;
-            ctx.lineWidth = 3.5;
-            ctx.stroke();
-
-            // 4. 노드 번호
-            ctx.fillStyle = isDragged ? '#000000' : node.color;
-            ctx.font = 'bold 13px "JetBrains Mono", monospace';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(node.id, sp.x, sp.y);
-
-            // 5. 노드 명칭 및 고도 뱃지 (가독성 높은 백드롭)
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'top';
-            ctx.font = 'bold 11px sans-serif';
-
-            // 텍스트 배경 백드롭 (가독성 극대화)
-            const labelText = node.name;
-            const elevText = `H: ${node.z.toFixed(1)}m (${node.x.toFixed(0)}, ${node.y.toFixed(0)})`;
-            ctx.fillStyle = 'rgba(6, 10, 16, 0.85)';
-            ctx.fillRect(sp.x - 55, sp.y + node.radiusPx + 3, 110, 26);
-            ctx.strokeStyle = 'rgba(0, 240, 255, 0.3)';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(sp.x - 55, sp.y + node.radiusPx + 3, 110, 26);
-
-            ctx.fillStyle = '#ffffff';
-            ctx.fillText(labelText, sp.x, sp.y + node.radiusPx + 5);
-
-            ctx.font = '9px "JetBrains Mono", monospace';
-            ctx.fillStyle = 'var(--accent-cyan)';
-            ctx.fillText(elevText, sp.x, sp.y + node.radiusPx + 17);
-
-            // 6. 속도 벡터 화살표
-            const speed = Math.hypot(node.vx, node.vy);
-            if (speed > 0.5) {
-                const arrowLen = Math.min(speed * 4, 40);
-                const angle = Math.atan2(-node.vy, node.vx);
-                const endX = sp.x + arrowLen * Math.cos(angle);
-                const endY = sp.y + arrowLen * Math.sin(angle);
-
-                ctx.strokeStyle = 'var(--accent-orange)';
-                ctx.lineWidth = 2.5;
-                ctx.beginPath();
-                ctx.moveTo(sp.x, sp.y);
-                ctx.lineTo(endX, endY);
-                ctx.stroke();
-
-                const headLen = 6;
-                ctx.fillStyle = 'var(--accent-orange)';
-                ctx.beginPath();
-                ctx.moveTo(endX, endY);
-                ctx.lineTo(endX - headLen * Math.cos(angle - Math.PI / 6), endY - headLen * Math.sin(angle - Math.PI / 6));
-                ctx.lineTo(endX - headLen * Math.cos(angle + Math.PI / 6), endY - headLen * Math.sin(angle + Math.PI / 6));
-                ctx.closePath();
-                ctx.fill();
-            }
-
-            ctx.textAlign = 'start';
-            ctx.textBaseline = 'alphabetic';
-        }
-    }
 }
 
 // DOM 로드 시 실행
