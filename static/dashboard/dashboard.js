@@ -292,7 +292,8 @@ class DashboardMonitor {
         document.getElementById('val-ins-rssi').textContent = `${link.rssiDbm.toFixed(1)} dBm`;
         document.getElementById('val-ins-delay').textContent = `${link.delayNs.toFixed(1)} ns`;
         document.getElementById('val-ins-doppler').textContent = `${link.dopplerHz.toFixed(2)} Hz`;
-        document.getElementById('val-ins-fading').textContent = `${link.fading.toFixed(1)} dB (Shadow ${link.shadowing}dB)`;
+        document.getElementById('val-ins-total-fading').textContent = `${link.fading.toFixed(1)} dB`;
+        document.getElementById('val-ins-shadow').textContent = `(Shadow ${link.shadowing}dB)`;
         document.getElementById('val-ins-spread').textContent = `${link.rmsDelaySpreadNs.toFixed(1)} ns`;
 
         if (link.multipath && link.multipath.length >= 3) {

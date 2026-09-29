@@ -301,6 +301,16 @@ header {
     color: #fff;
 }
 
+.fading-value-line {
+    display: block;
+    white-space: nowrap;
+}
+
+.fading-shadow-line {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
 /* Multipath Rays Visualizer */
 .multipath-taps {
     display: flex;
